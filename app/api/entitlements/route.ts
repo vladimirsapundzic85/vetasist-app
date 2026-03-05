@@ -6,48 +6,32 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function getDeviceLimitFromPlans(plan_id: string): Promise<number> {
-  // MVP: čitaj iz plans tabele ako postoji kolona device_limit
-  const { data, error } = await supabase
-    .from("plans")
-    .select("device_limit")
-    .eq("id", plan_id)
-    .single();
-
-  // fallback ako tabela/kolona nije spremna
-  if (error || !data || data.device_limit == null) {
-    if (plan_id === "basic") return 1;
-    if (plan_id === "team") return 3;
-    if (plan_id === "pro") return 10;
-    return 1;
-  }
-
-  return Number(data.device_limit) || 1;
+function deviceLimitForPlan(plan: string) {
+  // MVP hardcode. Kasnije: čitati iz plans tabele.
+  if (plan === "basic") return 1;
+  if (plan === "team") return 3;
+  if (plan === "pro") return 10;
+  return 1;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { license_key, api_key, device_id, device_fp } = body;
+    const license_key = body?.license_key;
+    const device_id = body?.device_id;
+    const device_fp = body?.device_fp;
 
-    // 0) API key
-    if (api_key !== process.env.VETASIST_SCRIPT_API_KEY) {
-      return NextResponse.json({ ok: false, error: "invalid_api_key" }, { status: 401 });
-    }
-
-    // 1) Input validation
     if (!license_key) {
       return NextResponse.json({ ok: false, error: "missing_license_key" }, { status: 400 });
     }
     if (!device_id) {
       return NextResponse.json({ ok: false, error: "missing_device_id" }, { status: 400 });
     }
-    // NOVO: fingerprint mora da dođe od klijenta
     if (!device_fp) {
       return NextResponse.json({ ok: false, error: "missing_device_fp" }, { status: 400 });
     }
 
-    // 2) resolve org_id from license_key
+    // 1) resolve org_id from license_key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
       .select("org_id, is_active")
@@ -61,7 +45,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "license_key_inactive" }, { status: 403 });
     }
 
-    // 3) read subscription for org
+    // 2) read subscription for org
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -78,9 +62,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "expired" }, { status: 403 });
     }
 
-    // 4) device registry + limit (po device_fp)
-    const limit = await getDeviceLimitFromPlans(sub.plan_id);
+    // 3) device registry + limit
+    const limit = deviceLimitForPlan(sub.plan_id);
 
+    // fetch unique devices for this license (by device_fp)
     const { data: devices, error: devErr } = await supabase
       .from("license_devices")
       .select("device_fp")
@@ -90,7 +75,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "device_lookup_failed" }, { status: 500 });
     }
 
-    const known = new Set((devices ?? []).map((d: any) => d.device_fp).filter(Boolean));
+    const known = new Set((devices ?? []).map(d => d.device_fp));
     const isNew = !known.has(device_fp);
 
     if (isNew && known.size >= limit) {
@@ -100,12 +85,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // upsert device heartbeat (onConflict je license_key,device_fp)
+    // upsert heartbeat (PK = license_key + device_fp)
     const now = new Date().toISOString();
+
     const { error: upErr } = await supabase
       .from("license_devices")
       .upsert(
-        { license_key, device_id, device_fp, first_seen: now, last_seen: now },
+        {
+          license_key,
+          device_fp,
+          device_id,
+          last_seen: now,
+        },
         { onConflict: "license_key,device_fp" }
       );
 
@@ -113,42 +104,33 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "device_upsert_failed" }, { status: 500 });
     }
 
-    // 5) entitlements iz DB funkcije
-    const { data: tools, error: toolsErr } = await supabase
-      .rpc("get_license_tools", { p_license_key: license_key });
+    // 4) get tools from DB function (already exists)
+    const { data: tools, error: toolsErr } = await supabase.rpc("get_license_tools", {
+      p_license_key: license_key,
+    });
 
     if (toolsErr) {
-      return NextResponse.json({ ok: false, error: "entitlements_failed" }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "tools_lookup_failed" }, { status: 500 });
     }
 
-    // 6) signed URLs za svaki tool build
-    const bucket = "Tools";
-    const signed: any[] = [];
+    // 5) signed urls for each tool build path
+    const out: Array<{ tool_code: string; version: string; url: string }> = [];
 
     for (const row of tools ?? []) {
-      const storage_path = row.storage_path as string;
+      const tool_code = row.tool_code as string;
+      const version = row.version as string;
+      const storage_path = row.storage_path as string; // e.g. tools/vb_zbirni_xlsx/1.0.1/script.js
 
-      // strip eventualni prefiks "tools/"
-      const objectPath = storage_path.startsWith("tools/")
-        ? storage_path.slice("tools/".length)
-        : storage_path;
+      const objectPath = storage_path.replace(/^tools\//i, ""); // bucket "Tools" expects path without leading "tools/"
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("Tools")
+        .createSignedUrl(objectPath, 60); // 60 seconds
 
-      const { data: signedData, error: signErr } = await supabase.storage
-        .from(bucket)
-        .createSignedUrl(objectPath, 60);
-
-      if (signErr || !signedData?.signedUrl) {
-        return NextResponse.json(
-          { ok: false, error: "signed_url_failed", tool: row.tool_code },
-          { status: 500 }
-        );
+      if (signErr || !signed?.signedUrl) {
+        return NextResponse.json({ ok: false, error: "signed_url_failed", tool: tool_code }, { status: 500 });
       }
 
-      signed.push({
-        tool_code: row.tool_code,
-        version: row.version,
-        url: signedData.signedUrl,
-      });
+      out.push({ tool_code, version, url: signed.signedUrl });
     }
 
     return NextResponse.json({
@@ -157,9 +139,9 @@ export async function POST(req: Request) {
       valid_until: sub.valid_until ?? null,
       device_limit: limit,
       device_new: isNew,
-      tools: signed,
+      tools: out,
     });
-  } catch {
+  } catch (e) {
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }
