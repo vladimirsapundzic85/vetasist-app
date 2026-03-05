@@ -1,19 +1,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// 1) Minimalni fingerprint: stabilan hash od device_id + user-agent + secret salt
-//    (kasnije ga ekstenzija šalje kao device_fp direktno)
-function computeDeviceFp(device_id: string, userAgent: string | null) {
-  const salt = process.env.VETASIST_DEVICE_SALT || "dev_salt_change_me";
-  const raw = `${device_id}||${userAgent || ""}||${salt}`;
-  return crypto.createHash("sha256").update(raw).digest("hex");
-}
 
 async function getDeviceLimitFromPlans(plan_id: string): Promise<number> {
   // MVP: čitaj iz plans tabele ako postoji kolona device_limit
@@ -25,7 +16,6 @@ async function getDeviceLimitFromPlans(plan_id: string): Promise<number> {
 
   // fallback ako tabela/kolona nije spremna
   if (error || !data || data.device_limit == null) {
-    // tvoj stari hardcode fallback
     if (plan_id === "basic") return 1;
     if (plan_id === "team") return 3;
     if (plan_id === "pro") return 10;
@@ -38,23 +28,26 @@ async function getDeviceLimitFromPlans(plan_id: string): Promise<number> {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { license_key, api_key, device_id } = body;
+    const { license_key, api_key, device_id, device_fp } = body;
 
+    // 0) API key
     if (api_key !== process.env.VETASIST_SCRIPT_API_KEY) {
       return NextResponse.json({ ok: false, error: "invalid_api_key" }, { status: 401 });
     }
+
+    // 1) Input validation
     if (!license_key) {
       return NextResponse.json({ ok: false, error: "missing_license_key" }, { status: 400 });
     }
     if (!device_id) {
       return NextResponse.json({ ok: false, error: "missing_device_id" }, { status: 400 });
     }
+    // NOVO: fingerprint mora da dođe od klijenta
+    if (!device_fp) {
+      return NextResponse.json({ ok: false, error: "missing_device_fp" }, { status: 400 });
+    }
 
-    // 0) fingerprint (MVP)
-    const ua = req.headers.get("user-agent");
-    const device_fp = computeDeviceFp(device_id, ua);
-
-    // 1) resolve org_id from license_key
+    // 2) resolve org_id from license_key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
       .select("org_id, is_active")
@@ -68,7 +61,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "license_key_inactive" }, { status: 403 });
     }
 
-    // 2) read subscription for org
+    // 3) read subscription for org
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -85,7 +78,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "expired" }, { status: 403 });
     }
 
-    // 3) device registry + limit (po fingerprintu, ne po device_id labelu)
+    // 4) device registry + limit (po device_fp)
     const limit = await getDeviceLimitFromPlans(sub.plan_id);
 
     const { data: devices, error: devErr } = await supabase
@@ -107,7 +100,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // upsert device heartbeat (čuvamo i label i fp)
+    // upsert device heartbeat (onConflict je license_key,device_fp)
     const now = new Date().toISOString();
     const { error: upErr } = await supabase
       .from("license_devices")
@@ -120,7 +113,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "device_upsert_failed" }, { status: 500 });
     }
 
-    // 4) entitlements iz DB funkcije (već postoji)
+    // 5) entitlements iz DB funkcije
     const { data: tools, error: toolsErr } = await supabase
       .rpc("get_license_tools", { p_license_key: license_key });
 
@@ -128,24 +121,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "entitlements_failed" }, { status: 500 });
     }
 
-    // 5) signed URLs za svaki tool build
-    // Bucket name: "Tools" (iz UI). Storage path iz DB izgleda "tools/...."
-    // U bucketu je "vb_zbirni_xlsx/1.0.1/script.js.txt" kod tebe,
-    // pa moraš uskladiti storage_path format. (vidi korak 2 dole)
+    // 6) signed URLs za svaki tool build
     const bucket = "Tools";
-
     const signed: any[] = [];
+
     for (const row of tools ?? []) {
       const storage_path = row.storage_path as string;
 
-      // strip eventualni prefiks "tools/" ako ga ima
+      // strip eventualni prefiks "tools/"
       const objectPath = storage_path.startsWith("tools/")
         ? storage_path.slice("tools/".length)
         : storage_path;
 
       const { data: signedData, error: signErr } = await supabase.storage
         .from(bucket)
-        .createSignedUrl(objectPath, 60); // 60s
+        .createSignedUrl(objectPath, 60);
 
       if (signErr || !signedData?.signedUrl) {
         return NextResponse.json(
@@ -169,7 +159,7 @@ export async function POST(req: Request) {
       device_new: isNew,
       tools: signed,
     });
-  } catch (e) {
+  } catch {
     return NextResponse.json({ ok: false, error: "server_error" }, { status: 500 });
   }
 }
