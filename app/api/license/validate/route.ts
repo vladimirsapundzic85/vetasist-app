@@ -29,6 +29,45 @@ function deviceLimitForPlan(plan: string) {
   return 1;
 }
 
+type ToolManifestItem = {
+  code: string;
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  species: string;
+  badge?: string;
+};
+
+function buildToolsManifest(): ToolManifestItem[] {
+  return [
+    {
+      code: "vb_zbirni_xlsx",
+      name: "VB Zbirni XLSX",
+      description:
+        "HID lista → podaci o gazdinstvu i životinjama, zbirni Excel izvoz.",
+      version: "1.0.1",
+      category: "Izveštaji i izvoz",
+      species: "goveda",
+      badge: "Aktivno",
+    },
+
+    // Sledeće alate ćemo otključavati kako ih budemo prebacivali u ekstenziju
+    // i kada budu spremni za učitavanje preko loadera.
+    // Primer buduće strukture:
+    //
+    // {
+    //   code: "ovce_koze_kontrole_xls",
+    //   name: "Ovce/Koze kontrole XLS",
+    //   description: "Pretraga i izvoz kontrole za ovce i koze.",
+    //   version: "1.0.0",
+    //   category: "Kontrole",
+    //   species: "ovce_koze",
+    //   badge: "U pripremi",
+    // },
+  ];
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
@@ -163,7 +202,9 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5) odgovor za ekstenziju
+    // 5) manifest alata za ekstenziju / picker panel
+    const tools = buildToolsManifest();
+
     return jsonResponse({
       ok: true,
       reason: "OK",
@@ -172,12 +213,7 @@ export async function POST(req: Request) {
       device_limit: limit,
       device_new: isNew,
       device_count: isNew ? known.size + 1 : known.size,
-      tools: [
-        {
-          code: "vb_zbirni_xlsx",
-          version: "1.0.1",
-        },
-      ],
+      tools,
     });
   } catch (error) {
     console.error("license validate fatal error:", error);
