@@ -6,18 +6,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
-  };
-}
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
 
-function json(data: unknown, status = 200) {
-  return NextResponse.json(data, {
+function jsonResponse(data: unknown, status = 200) {
+  return new NextResponse(JSON.stringify(data), {
     status,
-    headers: corsHeaders(),
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    },
   });
 }
 
@@ -31,7 +32,7 @@ function deviceLimitForPlan(plan: string) {
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
-    headers: corsHeaders(),
+    headers: corsHeaders,
   });
 }
 
@@ -40,13 +41,14 @@ export async function POST(req: Request) {
     const { license_key, device_id } = await req.json();
 
     if (!license_key) {
-      return json({ ok: false, reason: "missing_license_key" }, 400);
+      return jsonResponse({ ok: false, reason: "missing_license_key" }, 400);
     }
 
     if (!device_id) {
-      return json({ ok: false, reason: "missing_device_id" }, 400);
+      return jsonResponse({ ok: false, reason: "missing_device_id" }, 400);
     }
 
+    // 1) pronađi license key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
       .select("org_id, is_active, plan")
@@ -54,13 +56,14 @@ export async function POST(req: Request) {
       .single();
 
     if (lkErr || !lk) {
-      return json({ ok: false, reason: "license_key_not_found" }, 404);
+      return jsonResponse({ ok: false, reason: "license_key_not_found" }, 404);
     }
 
     if (!lk.is_active) {
-      return json({ ok: false, reason: "license_key_inactive" }, 403);
+      return jsonResponse({ ok: false, reason: "license_key_inactive" }, 403);
     }
 
+    // 2) pretplata organizacije
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -68,17 +71,18 @@ export async function POST(req: Request) {
       .single();
 
     if (subErr || !sub) {
-      return json({ ok: false, reason: "no_subscription" }, 404);
+      return jsonResponse({ ok: false, reason: "no_subscription" }, 404);
     }
 
     if (sub.status !== "active") {
-      return json({ ok: false, reason: "inactive_license" }, 403);
+      return jsonResponse({ ok: false, reason: "inactive_license" }, 403);
     }
 
     if (sub.valid_until && new Date(sub.valid_until) < new Date()) {
-      return json({ ok: false, reason: "expired" }, 403);
+      return jsonResponse({ ok: false, reason: "expired" }, 403);
     }
 
+    // 3) limit uređaja po planu
     const limit = deviceLimitForPlan(sub.plan_id);
 
     const { data: devices, error: devErr } = await supabase
@@ -87,14 +91,14 @@ export async function POST(req: Request) {
       .eq("license_key", license_key);
 
     if (devErr) {
-      return json({ ok: false, reason: "device_lookup_failed" }, 500);
+      return jsonResponse({ ok: false, reason: "device_lookup_failed" }, 500);
     }
 
     const known = new Set((devices ?? []).map((d) => d.device_id));
     const isNew = !known.has(device_id);
 
     if (isNew && known.size >= limit) {
-      return json(
+      return jsonResponse(
         {
           ok: false,
           reason: "device_limit_reached",
@@ -104,6 +108,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // 4) heartbeat uređaja
     const now = new Date().toISOString();
 
     const { error: upErr } = await supabase
@@ -113,16 +118,18 @@ export async function POST(req: Request) {
           license_key,
           device_id,
           device_fp: device_id,
+          first_seen: now,
           last_seen: now,
         },
         { onConflict: "license_key,device_id" }
       );
 
     if (upErr) {
-      return json({ ok: false, reason: "device_upsert_failed" }, 500);
+      return jsonResponse({ ok: false, reason: "device_upsert_failed" }, 500);
     }
 
-    return json({
+    // 5) odgovor za ekstenziju
+    return jsonResponse({
       ok: true,
       reason: "OK",
       plan: sub.plan_id,
@@ -137,7 +144,8 @@ export async function POST(req: Request) {
         },
       ],
     });
-  } catch {
-    return json({ ok: false, reason: "server_error" }, 500);
+  } catch (error) {
+    console.error("license validate error:", error);
+    return jsonResponse({ ok: false, reason: "server_error" }, 500);
   }
 }
