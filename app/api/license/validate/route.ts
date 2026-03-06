@@ -51,20 +51,16 @@ function buildToolsManifest(): ToolManifestItem[] {
       species: "goveda",
       badge: "Aktivno",
     },
-
-    // Sledeće alate ćemo otključavati kako ih budemo prebacivali u ekstenziju
-    // i kada budu spremni za učitavanje preko loadera.
-    // Primer buduće strukture:
-    //
-    // {
-    //   code: "ovce_koze_kontrole_xls",
-    //   name: "Ovce/Koze kontrole XLS",
-    //   description: "Pretraga i izvoz kontrole za ovce i koze.",
-    //   version: "1.0.0",
-    //   category: "Kontrole",
-    //   species: "ovce_koze",
-    //   badge: "U pripremi",
-    // },
+    {
+      code: "provera_telenja",
+      name: "Provera telenja",
+      description:
+        "Provera datuma telenja kroz potomstvo, sa double-check logikom i Excel izvozom.",
+      version: "2.10.6.2",
+      category: "Reprodukcija",
+      species: "goveda",
+      badge: "Aktivno",
+    },
   ];
 }
 
@@ -90,7 +86,6 @@ export async function POST(req: Request) {
     const device_fp = device_id;
     const now = new Date().toISOString();
 
-    // 1) pronađi license key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
       .select("org_id, is_active, plan")
@@ -106,7 +101,6 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "license_key_inactive" }, 403);
     }
 
-    // 2) pretplata organizacije
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -126,7 +120,6 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "expired" }, 403);
     }
 
-    // 3) učitaj postojeće uređaje za tu licencu
     const { data: devices, error: devErr } = await supabase
       .from("license_devices")
       .select("license_key, device_id")
@@ -152,7 +145,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) update existing ili insert new
     if (isNew) {
       const { error: insertErr } = await supabase
         .from("license_devices")
@@ -202,7 +194,6 @@ export async function POST(req: Request) {
       }
     }
 
-    // 5) manifest alata za ekstenziju / picker panel
     const tools = buildToolsManifest();
 
     return jsonResponse({
