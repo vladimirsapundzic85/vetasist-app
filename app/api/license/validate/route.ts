@@ -56,6 +56,7 @@ export async function POST(req: Request) {
       .single();
 
     if (lkErr || !lk) {
+      console.error("license lookup failed:", lkErr);
       return jsonResponse({ ok: false, reason: "license_key_not_found" }, 404);
     }
 
@@ -71,6 +72,7 @@ export async function POST(req: Request) {
       .single();
 
     if (subErr || !sub) {
+      console.error("subscription lookup failed:", subErr);
       return jsonResponse({ ok: false, reason: "no_subscription" }, 404);
     }
 
@@ -91,6 +93,7 @@ export async function POST(req: Request) {
       .eq("license_key", license_key);
 
     if (devErr) {
+      console.error("device lookup failed:", devErr);
       return jsonResponse({ ok: false, reason: "device_lookup_failed" }, 500);
     }
 
@@ -111,24 +114,34 @@ export async function POST(req: Request) {
     // 4) heartbeat uređaja
     const now = new Date().toISOString();
 
+    const payload = {
+      license_key,
+      device_id,
+      device_fp: device_id,
+      first_seen: now,
+      last_seen: now,
+    };
+
+    console.log("device upsert payload:", payload);
+
     const { error: upErr } = await supabase
       .from("license_devices")
-      .upsert(
-        {
-          license_key,
-          device_id,
-          device_fp: device_id,
-          first_seen: now,
-          last_seen: now,
-        },
-        { onConflict: "license_key,device_id" }
-      );
+      .upsert(payload, { onConflict: "license_key,device_id" });
 
     if (upErr) {
-      return jsonResponse({ ok: false, reason: "device_upsert_failed" }, 500);
+      console.error("device upsert failed:", upErr);
+      return jsonResponse(
+        {
+          ok: false,
+          reason: "device_upsert_failed",
+          detail: upErr.message ?? null,
+          code: (upErr as any).code ?? null,
+          hint: (upErr as any).hint ?? null,
+        },
+        500
+      );
     }
 
-    // 5) odgovor za ekstenziju
     return jsonResponse({
       ok: true,
       reason: "OK",
@@ -145,7 +158,7 @@ export async function POST(req: Request) {
       ],
     });
   } catch (error) {
-    console.error("license validate error:", error);
+    console.error("license validate fatal error:", error);
     return jsonResponse({ ok: false, reason: "server_error" }, 500);
   }
 }
