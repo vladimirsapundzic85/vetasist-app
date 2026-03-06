@@ -6,6 +6,21 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
+function json(data: unknown, status = 200) {
+  return NextResponse.json(data, {
+    status,
+    headers: corsHeaders(),
+  });
+}
+
 function deviceLimitForPlan(plan: string) {
   if (plan === "basic") return 1;
   if (plan === "team") return 3;
@@ -13,25 +28,25 @@ function deviceLimitForPlan(plan: string) {
   return 1;
 }
 
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: corsHeaders(),
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const { license_key, device_id } = await req.json();
 
     if (!license_key) {
-      return NextResponse.json(
-        { ok: false, reason: "missing_license_key" },
-        { status: 400 }
-      );
+      return json({ ok: false, reason: "missing_license_key" }, 400);
     }
 
     if (!device_id) {
-      return NextResponse.json(
-        { ok: false, reason: "missing_device_id" },
-        { status: 400 }
-      );
+      return json({ ok: false, reason: "missing_device_id" }, 400);
     }
 
-    // 1) nađi license key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
       .select("org_id, is_active, plan")
@@ -39,20 +54,13 @@ export async function POST(req: Request) {
       .single();
 
     if (lkErr || !lk) {
-      return NextResponse.json(
-        { ok: false, reason: "license_key_not_found" },
-        { status: 404 }
-      );
+      return json({ ok: false, reason: "license_key_not_found" }, 404);
     }
 
     if (!lk.is_active) {
-      return NextResponse.json(
-        { ok: false, reason: "license_key_inactive" },
-        { status: 403 }
-      );
+      return json({ ok: false, reason: "license_key_inactive" }, 403);
     }
 
-    // 2) pretplata organizacije
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -60,27 +68,17 @@ export async function POST(req: Request) {
       .single();
 
     if (subErr || !sub) {
-      return NextResponse.json(
-        { ok: false, reason: "no_subscription" },
-        { status: 404 }
-      );
+      return json({ ok: false, reason: "no_subscription" }, 404);
     }
 
     if (sub.status !== "active") {
-      return NextResponse.json(
-        { ok: false, reason: "inactive_license" },
-        { status: 403 }
-      );
+      return json({ ok: false, reason: "inactive_license" }, 403);
     }
 
     if (sub.valid_until && new Date(sub.valid_until) < new Date()) {
-      return NextResponse.json(
-        { ok: false, reason: "expired" },
-        { status: 403 }
-      );
+      return json({ ok: false, reason: "expired" }, 403);
     }
 
-    // 3) limit uređaja po planu
     const limit = deviceLimitForPlan(sub.plan_id);
 
     const { data: devices, error: devErr } = await supabase
@@ -89,27 +87,23 @@ export async function POST(req: Request) {
       .eq("license_key", license_key);
 
     if (devErr) {
-      return NextResponse.json(
-        { ok: false, reason: "device_lookup_failed" },
-        { status: 500 }
-      );
+      return json({ ok: false, reason: "device_lookup_failed" }, 500);
     }
 
     const known = new Set((devices ?? []).map((d) => d.device_id));
     const isNew = !known.has(device_id);
 
     if (isNew && known.size >= limit) {
-      return NextResponse.json(
+      return json(
         {
           ok: false,
           reason: "device_limit_reached",
           limit,
         },
-        { status: 403 }
+        403
       );
     }
 
-    // 4) heartbeat uređaja
     const now = new Date().toISOString();
 
     const { error: upErr } = await supabase
@@ -125,14 +119,10 @@ export async function POST(req: Request) {
       );
 
     if (upErr) {
-      return NextResponse.json(
-        { ok: false, reason: "device_upsert_failed" },
-        { status: 500 }
-      );
+      return json({ ok: false, reason: "device_upsert_failed" }, 500);
     }
 
-    // 5) MVP odgovor za ekstenziju
-    return NextResponse.json({
+    return json({
       ok: true,
       reason: "OK",
       plan: sub.plan_id,
@@ -148,9 +138,6 @@ export async function POST(req: Request) {
       ],
     });
   } catch {
-    return NextResponse.json(
-      { ok: false, reason: "server_error" },
-      { status: 500 }
-    );
+    return json({ ok: false, reason: "server_error" }, 500);
   }
 }
