@@ -48,6 +48,9 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "missing_device_id" }, 400);
     }
 
+    const device_fp = device_id;
+    const now = new Date().toISOString();
+
     // 1) pronađi license key
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
@@ -84,12 +87,10 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "expired" }, 403);
     }
 
-    // 3) limit uređaja po planu
-    const limit = deviceLimitForPlan(sub.plan_id);
-
+    // 3) učitaj postojeće uređaje za tu licencu
     const { data: devices, error: devErr } = await supabase
       .from("license_devices")
-      .select("device_id")
+      .select("license_key, device_id")
       .eq("license_key", license_key);
 
     if (devErr) {
@@ -99,6 +100,7 @@ export async function POST(req: Request) {
 
     const known = new Set((devices ?? []).map((d) => d.device_id));
     const isNew = !known.has(device_id);
+    const limit = deviceLimitForPlan(sub.plan_id);
 
     if (isNew && known.size >= limit) {
       return jsonResponse(
@@ -111,37 +113,57 @@ export async function POST(req: Request) {
       );
     }
 
-    // 4) heartbeat uređaja
-    const now = new Date().toISOString();
+    // 4) update existing ili insert new
+    if (isNew) {
+      const { error: insertErr } = await supabase
+        .from("license_devices")
+        .insert({
+          license_key,
+          device_id,
+          device_fp,
+          first_seen: now,
+          last_seen: now,
+        });
 
-    const payload = {
-      license_key,
-      device_id,
-      device_fp: device_id,
-      first_seen: now,
-      last_seen: now,
-    };
+      if (insertErr) {
+        console.error("device insert failed:", insertErr);
+        return jsonResponse(
+          {
+            ok: false,
+            reason: "device_insert_failed",
+            detail: insertErr.message ?? null,
+            code: (insertErr as any).code ?? null,
+            hint: (insertErr as any).hint ?? null,
+          },
+          500
+        );
+      }
+    } else {
+      const { error: updateErr } = await supabase
+        .from("license_devices")
+        .update({
+          last_seen: now,
+          device_fp,
+        })
+        .eq("license_key", license_key)
+        .eq("device_id", device_id);
 
-    console.log("device upsert payload:", payload);
-
-    const { error: upErr } = await supabase
-      .from("license_devices")
-      .upsert(payload, { onConflict: "license_key,device_id" });
-
-    if (upErr) {
-      console.error("device upsert failed:", upErr);
-      return jsonResponse(
-        {
-          ok: false,
-          reason: "device_upsert_failed",
-          detail: upErr.message ?? null,
-          code: (upErr as any).code ?? null,
-          hint: (upErr as any).hint ?? null,
-        },
-        500
-      );
+      if (updateErr) {
+        console.error("device update failed:", updateErr);
+        return jsonResponse(
+          {
+            ok: false,
+            reason: "device_update_failed",
+            detail: updateErr.message ?? null,
+            code: (updateErr as any).code ?? null,
+            hint: (updateErr as any).hint ?? null,
+          },
+          500
+        );
+      }
     }
 
+    // 5) odgovor za ekstenziju
     return jsonResponse({
       ok: true,
       reason: "OK",
