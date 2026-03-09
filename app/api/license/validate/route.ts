@@ -26,6 +26,7 @@ function deviceLimitForPlan(plan: string) {
   if (plan === "basic") return 1;
   if (plan === "team") return 3;
   if (plan === "pro") return 10;
+  if (plan === "exclusive") return 30;
   return 1;
 }
 
@@ -83,12 +84,13 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "missing_device_id" }, 400);
     }
 
-    const device_fp = device_id;
     const now = new Date().toISOString();
+    const device_fp = device_id;
 
+    // 1) Nađi ključ i org_id
     const { data: lk, error: lkErr } = await supabase
       .from("license_keys")
-      .select("org_id, is_active, plan")
+      .select("org_id, is_active")
       .eq("license_key", license_key)
       .single();
 
@@ -101,6 +103,7 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "license_key_inactive" }, 403);
     }
 
+    // 2) Nađi aktivnu pretplatu organizacije
     const { data: sub, error: subErr } = await supabase
       .from("subscriptions")
       .select("status, plan_id, valid_until")
@@ -120,32 +123,83 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "expired" }, 403);
     }
 
-    const { data: devices, error: devErr } = await supabase
-      .from("license_devices")
-      .select("license_key, device_id")
-      .eq("license_key", license_key);
-
-    if (devErr) {
-      console.error("device lookup failed:", devErr);
-      return jsonResponse({ ok: false, reason: "device_lookup_failed" }, 500);
-    }
-
-    const known = new Set((devices ?? []).map((d) => d.device_id));
-    const isNew = !known.has(device_id);
     const limit = deviceLimitForPlan(sub.plan_id);
 
-    if (isNew && known.size >= limit) {
+    // 3) Uzmi sve ključeve iste organizacije
+    const { data: orgKeys, error: orgKeysErr } = await supabase
+      .from("license_keys")
+      .select("license_key")
+      .eq("org_id", lk.org_id)
+      .eq("is_active", true);
+
+    if (orgKeysErr) {
+      console.error("org keys lookup failed:", orgKeysErr);
+      return jsonResponse({ ok: false, reason: "org_keys_lookup_failed" }, 500);
+    }
+
+    const orgLicenseKeys = (orgKeys ?? [])
+      .map((row) => row.license_key)
+      .filter(Boolean);
+
+    if (!orgLicenseKeys.length) {
+      return jsonResponse({ ok: false, reason: "no_active_org_keys" }, 404);
+    }
+
+    // 4) Uzmi sve uređaje za sve ključeve te organizacije
+    const { data: orgDevices, error: orgDevicesErr } = await supabase
+      .from("license_devices")
+      .select("license_key, device_id")
+      .in("license_key", orgLicenseKeys);
+
+    if (orgDevicesErr) {
+      console.error("org devices lookup failed:", orgDevicesErr);
+      return jsonResponse(
+        { ok: false, reason: "device_lookup_failed" },
+        500
+      );
+    }
+
+    // Jedinstveni uređaji na nivou organizacije
+    const knownOrgDeviceIds = new Set(
+      (orgDevices ?? []).map((row) => row.device_id).filter(Boolean)
+    );
+
+    const isKnownToOrg = knownOrgDeviceIds.has(device_id);
+    const deviceCount = knownOrgDeviceIds.size;
+
+    // 5) Ako je novi uređaj za organizaciju, proveri limit
+    if (!isKnownToOrg && deviceCount >= limit) {
       return jsonResponse(
         {
           ok: false,
           reason: "device_limit_reached",
           limit,
+          device_count: deviceCount,
         },
         403
       );
     }
 
-    if (isNew) {
+    // 6) Da li ovaj konkretan ključ već ima zapis za taj uređaj?
+    const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
+      .from("license_devices")
+      .select("license_key, device_id")
+      .eq("license_key", license_key)
+      .eq("device_id", device_id)
+      .maybeSingle();
+
+    if (currentKeyDeviceErr) {
+      console.error("current key device lookup failed:", currentKeyDeviceErr);
+      return jsonResponse(
+        { ok: false, reason: "current_key_device_lookup_failed" },
+        500
+      );
+    }
+
+    const existsForCurrentKey = !!currentKeyDevice;
+
+    // 7) Upis / heartbeat za konkretan ključ
+    if (!existsForCurrentKey) {
       const { error: insertErr } = await supabase
         .from("license_devices")
         .insert({
@@ -202,8 +256,8 @@ export async function POST(req: Request) {
       plan: sub.plan_id,
       valid_until: sub.valid_until ?? null,
       device_limit: limit,
-      device_new: isNew,
-      device_count: isNew ? known.size + 1 : known.size,
+      device_new: !isKnownToOrg,
+      device_count: !isKnownToOrg ? deviceCount + 1 : deviceCount,
       tools,
     });
   } catch (error) {
