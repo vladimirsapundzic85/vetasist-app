@@ -9,13 +9,18 @@ const supabase = createClient(
 )
 
 export async function POST(req: Request) {
-  try {
-    const body = await req.json()
-    const { tool_slug } = body
+  const body = await req.json();
 
-    if (!tool_slug) {
-      return NextResponse.json({ error: "missing tool_slug" }, { status: 400 })
-    }
+  const tool_slug = body.tool_slug || body.tool_code;
+  const license_key = body.license_key;
+  const device_id = body.device_id;
+
+  if (!tool_slug) {
+    return NextResponse.json(
+      { ok: false, error: "missing_tool_slug" },
+      { status: 400 }
+    );
+  }
 
     const { data: tool } = await supabase
       .from("tools")
