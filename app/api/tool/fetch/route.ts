@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import {
+  resolveLicenseContext,
+  registerOrCheckDevice,
+  getToolByCode,
+  getPlanToolAccess,
+  getLatestToolBuild,
+} from "@/app/lib/license-core";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -20,14 +27,6 @@ function jsonResponse(body: unknown, status = 200) {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
-}
-
-function deviceLimitForPlan(plan: string) {
-  if (plan === "basic") return 1;
-  if (plan === "team") return 3;
-  if (plan === "pro") return 10;
-  if (plan === "exclusive") return 30;
-  return 1;
 }
 
 export async function OPTIONS() {
@@ -66,94 +65,57 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, error: "missing_tool_code" }, 400);
     }
 
-    const { data: lk, error: lkErr } = await supabase
-      .from("license_keys")
-      .select("org_id, is_active")
-      .eq("license_key", license_key)
-      .single();
+    const context = await resolveLicenseContext(license_key);
 
-    if (lkErr || !lk) {
-      return jsonResponse({ ok: false, error: "license_key_not_found" }, 404);
-    }
+    if (!context.ok) {
+      const status =
+        context.error === "license_key_not_found" || context.error === "no_subscription"
+          ? 404
+          : context.error === "server_error"
+            ? 500
+            : 403;
 
-    if (!lk.is_active) {
-      return jsonResponse({ ok: false, error: "license_key_inactive" }, 403);
-    }
-
-    const { data: sub, error: subErr } = await supabase
-      .from("subscriptions")
-      .select("status, plan_id, valid_until")
-      .eq("org_id", lk.org_id)
-      .single();
-
-    if (subErr || !sub) {
-      return jsonResponse({ ok: false, error: "no_subscription" }, 404);
-    }
-
-    if (sub.status !== "active") {
-      return jsonResponse({ ok: false, error: "inactive_license" }, 403);
-    }
-
-    if (sub.valid_until && new Date(sub.valid_until) < new Date()) {
-      return jsonResponse({ ok: false, error: "expired" }, 403);
-    }
-
-    const planId = String(sub.plan_id || "").trim();
-    const deviceLimit = deviceLimitForPlan(planId);
-
-    const { data: devices, error: devLookupErr } = await supabase
-      .from("license_devices")
-      .select("device_id")
-      .eq("license_key", license_key);
-
-    if (devLookupErr) {
-      return jsonResponse({ ok: false, error: "device_lookup_failed" }, 500);
-    }
-
-    const known = new Set((devices ?? []).map((d) => String(d.device_id)));
-    const isNewDevice = !known.has(device_id);
-
-    if (isNewDevice && known.size >= deviceLimit) {
       return jsonResponse(
         {
           ok: false,
-          error: "device_limit_reached",
-          limit: deviceLimit,
+          error: context.error,
+          details: context.details ?? null,
         },
-        403
+        status
       );
     }
 
-    const now = new Date().toISOString();
+    const deviceResult = await registerOrCheckDevice({
+      license_key,
+      device_id,
+      device_fp: device_id,
+    });
 
-    const { error: upErr } = await supabase
-      .from("license_devices")
-      .upsert(
-        {
-          license_key,
-          device_id,
-          device_fp: device_id,
-          last_seen: now,
-        },
-        { onConflict: "license_key,device_id" }
-      );
+    if (!deviceResult.ok) {
+      const status =
+        deviceResult.error === "device_lookup_failed" ||
+        deviceResult.error === "device_insert_failed" ||
+        deviceResult.error === "device_update_failed" ||
+        deviceResult.error === "current_key_device_lookup_failed" ||
+        deviceResult.error === "server_error"
+          ? 500
+          : 403;
 
-    if (upErr) {
       return jsonResponse(
         {
           ok: false,
-          error: "device_upsert_failed",
-          details: upErr.message,
+          error: deviceResult.error,
+          details: deviceResult.details ?? null,
+          limit: deviceResult.limit ?? null,
+          device_count: deviceResult.deviceCount ?? null,
         },
-        500
+        status
       );
     }
 
-    const { data: tool, error: toolErr } = await supabase
-      .from("tools")
-      .select("id, code, name, description, species, is_active")
-      .eq("code", tool_code)
-      .single();
+    const planId = String(context.subscription.plan_id || "").trim();
+
+    const { data: tool, error: toolErr } = await getToolByCode(tool_code);
 
     if (toolErr || !tool) {
       return jsonResponse({ ok: false, error: "tool_not_found" }, 404);
@@ -163,12 +125,10 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, error: "tool_inactive" }, 403);
     }
 
-    const { data: planTool, error: planToolErr } = await supabase
-      .from("plan_tools")
-      .select("enabled")
-      .eq("plan_id", planId)
-      .eq("tool_id", tool.id)
-      .single();
+    const { data: planTool, error: planToolErr } = await getPlanToolAccess(
+      planId,
+      tool.id
+    );
 
     if (planToolErr || !planTool) {
       return jsonResponse({ ok: false, error: "tool_not_allowed_for_plan" }, 403);
@@ -178,12 +138,7 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, error: "tool_disabled_for_plan" }, 403);
     }
 
-    const { data: build, error: buildErr } = await supabase
-      .from("tool_builds")
-      .select("version, storage_path, is_active, is_latest, sha256, payload_type")
-      .eq("tool_id", tool.id)
-      .eq("is_latest", true)
-      .single();
+    const { data: build, error: buildErr } = await getLatestToolBuild(tool.id);
 
     if (buildErr || !build) {
       return jsonResponse({ ok: false, error: "tool_build_not_found" }, 404);
@@ -228,9 +183,10 @@ export async function POST(req: Request) {
       script_url: signed.signedUrl,
       meta: {
         plan: planId,
-        device_limit: deviceLimit,
-        device_new: isNewDevice,
-        device_count: isNewDevice ? known.size + 1 : known.size,
+        valid_until: context.subscription.valid_until ?? null,
+        device_limit: deviceResult.limit,
+        device_new: deviceResult.isNewDevice,
+        device_count: deviceResult.deviceCount,
         storage_path: storagePath,
       },
     });
