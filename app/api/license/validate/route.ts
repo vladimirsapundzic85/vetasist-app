@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+import {
+  resolveLicenseContext,
+  registerOrCheckDevice
+} from "@/app/lib/license-core";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,14 +18,6 @@ function jsonResponse(data: unknown, status = 200) {
       ...corsHeaders,
     },
   });
-}
-
-function deviceLimitForPlan(plan: string) {
-  if (plan === "basic") return 1;
-  if (plan === "team") return 3;
-  if (plan === "pro") return 10;
-  if (plan === "exclusive") return 30;
-  return 1;
 }
 
 type ToolManifestItem = {
@@ -84,134 +74,28 @@ export async function POST(req: Request) {
       return jsonResponse({ ok: false, reason: "missing_device_id" }, 400);
     }
 
-    const now = new Date().toISOString();
-    const device_fp = device_id;
+    const context = await resolveLicenseContext(license_key);
 
-    const { data: lk, error: lkErr } = await supabase
-      .from("license_keys")
-      .select("org_id, is_active")
-      .eq("license_key", license_key)
-      .single();
-
-    if (lkErr || !lk) {
-      console.error("license lookup failed:", lkErr);
-      return jsonResponse({ ok: false, reason: "license_key_not_found" }, 404);
+    if (!context.ok) {
+      return jsonResponse({ ok: false, reason: context.error }, 403);
     }
 
-    if (!lk.is_active) {
-      return jsonResponse({ ok: false, reason: "license_key_inactive" }, 403);
-    }
+    const deviceResult = await registerOrCheckDevice({
+      license_key,
+      device_id,
+      device_fp: device_id,
+    });
 
-    const { data: sub, error: subErr } = await supabase
-      .from("subscriptions")
-      .select("status, plan_id, valid_until")
-      .eq("org_id", lk.org_id)
-      .single();
-
-    if (subErr || !sub) {
-      console.error("subscription lookup failed:", subErr);
-      return jsonResponse({ ok: false, reason: "no_subscription" }, 404);
-    }
-
-    if (sub.status !== "active") {
-      return jsonResponse({ ok: false, reason: "inactive_license" }, 403);
-    }
-
-    if (sub.valid_until && new Date(sub.valid_until) < new Date()) {
-      return jsonResponse({ ok: false, reason: "expired" }, 403);
-    }
-
-    const limit = deviceLimitForPlan(sub.plan_id);
-
-    const { data: devices, error: devErr } = await supabase
-      .from("license_devices")
-      .select("license_key, device_id")
-      .eq("license_key", license_key);
-
-    if (devErr) {
-      console.error("device lookup failed:", devErr);
-      return jsonResponse({ ok: false, reason: "device_lookup_failed" }, 500);
-    }
-
-    const known = new Set((devices ?? []).map((d) => d.device_id));
-    const isNew = !known.has(device_id);
-
-    if (isNew && known.size >= limit) {
+    if (!deviceResult.ok) {
       return jsonResponse(
         {
           ok: false,
-          reason: "device_limit_reached",
-          limit,
-          device_count: known.size,
+          reason: deviceResult.error,
+          limit: deviceResult.limit ?? null,
+          device_count: deviceResult.deviceCount ?? null,
         },
         403
       );
-    }
-
-    const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
-      .from("license_devices")
-      .select("license_key, device_id")
-      .eq("license_key", license_key)
-      .eq("device_id", device_id)
-      .maybeSingle();
-
-    if (currentKeyDeviceErr) {
-      console.error("current key device lookup failed:", currentKeyDeviceErr);
-      return jsonResponse(
-        { ok: false, reason: "current_key_device_lookup_failed" },
-        500
-      );
-    }
-
-    const existsForCurrentKey = !!currentKeyDevice;
-
-    if (!existsForCurrentKey) {
-      const { error: insertErr } = await supabase
-        .from("license_devices")
-        .insert({
-          license_key,
-          device_id,
-          device_fp,
-          first_seen: now,
-          last_seen: now,
-        });
-
-      if (insertErr) {
-        console.error("device insert failed:", insertErr);
-        return jsonResponse(
-          {
-            ok: false,
-            reason: "device_insert_failed",
-            detail: insertErr.message ?? null,
-            code: (insertErr as any).code ?? null,
-            hint: (insertErr as any).hint ?? null,
-          },
-          500
-        );
-      }
-    } else {
-      const { error: updateErr } = await supabase
-        .from("license_devices")
-        .update({
-          last_seen: now,
-          device_fp,
-        })
-        .eq("license_key", license_key)
-        .eq("device_id", device_id);
-
-      if (updateErr) {
-        console.error("device update failed:", updateErr);
-        return jsonResponse(
-          {
-            ok: false,
-            reason: "device_update_failed",
-            detail: updateErr.message ?? null,
-            code: (updateErr as any).code ?? null,
-            hint: (updateErr as any).hint ?? null,
-          },
-          500
-        );
-      }
     }
 
     const tools = buildToolsManifest();
@@ -219,11 +103,11 @@ export async function POST(req: Request) {
     return jsonResponse({
       ok: true,
       reason: "OK",
-      plan: sub.plan_id,
-      valid_until: sub.valid_until ?? null,
-      device_limit: limit,
-      device_new: isNew,
-      device_count: isNew ? known.size + 1 : known.size,
+      plan: context.subscription.plan_id,
+      valid_until: context.subscription.valid_until ?? null,
+      device_limit: deviceResult.limit,
+      device_new: deviceResult.isNewDevice,
+      device_count: deviceResult.deviceCount,
       tools,
     });
   } catch (error) {
