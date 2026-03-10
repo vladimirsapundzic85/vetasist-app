@@ -54,6 +54,16 @@ export type DeviceRegistrationResult =
       deviceCount?: number;
     };
 
+export type AvailableToolItem = {
+  code: string;
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  species: string;
+  badge?: string;
+};
+
 export function deviceLimitForPlan(plan: PlanId): number {
   if (plan === "basic") return 1;
   if (plan === "team") return 3;
@@ -269,4 +279,100 @@ export async function getLatestToolBuild(tool_id: string) {
     .single();
 
   return { data, error };
+}
+
+export async function getAvailableToolsForPlan(
+  plan_id: string
+): Promise<AvailableToolItem[]> {
+  const normalizedPlanId = String(plan_id || "").trim();
+
+  const { data: planTools, error: planToolsErr } = await supabase
+    .from("plan_tools")
+    .select("tool_id, enabled")
+    .eq("plan_id", normalizedPlanId)
+    .eq("enabled", true);
+
+  if (planToolsErr || !planTools?.length) {
+    return [];
+  }
+
+  const toolIds = planTools
+    .map((row) => String(row.tool_id || "").trim())
+    .filter(Boolean);
+
+  if (!toolIds.length) {
+    return [];
+  }
+
+  const { data: tools, error: toolsErr } = await supabase
+    .from("tools")
+    .select("id, code, name, description, species, is_active")
+    .in("id", toolIds)
+    .eq("is_active", true);
+
+  if (toolsErr || !tools?.length) {
+    return [];
+  }
+
+  const { data: builds, error: buildsErr } = await supabase
+    .from("tool_builds")
+    .select("tool_id, version, is_active, is_latest")
+    .in("tool_id", toolIds)
+    .eq("is_latest", true)
+    .eq("is_active", true);
+
+  if (buildsErr || !builds?.length) {
+    return [];
+  }
+
+  const latestBuildByToolId = new Map<string, { version: string }>();
+  for (const build of builds) {
+    latestBuildByToolId.set(String(build.tool_id), {
+      version: String(build.version || ""),
+    });
+  }
+
+  const out: AvailableToolItem[] = [];
+
+  for (const tool of tools) {
+    const build = latestBuildByToolId.get(String(tool.id));
+    if (!build?.version) continue;
+
+    out.push({
+      code: String(tool.code || ""),
+      name: String(tool.name || tool.code || ""),
+      description: String(tool.description || ""),
+      version: build.version,
+      category: inferToolCategory(String(tool.code || ""), String(tool.name || "")),
+      species: String(tool.species || "nepoznato"),
+      badge: "Aktivno",
+    });
+  }
+
+  out.sort((a, b) => a.name.localeCompare(b.name, "sr"));
+
+  return out;
+}
+
+function inferToolCategory(code: string, name: string): string {
+  const key = `${code} ${name}`.toLowerCase();
+
+  if (
+    key.includes("telenj") ||
+    key.includes("reprodukc")
+  ) {
+    return "Reprodukcija";
+  }
+
+  if (
+    key.includes("xlsx") ||
+    key.includes("xls") ||
+    key.includes("izvoz") ||
+    key.includes("zbirni") ||
+    key.includes("kontrol")
+  ) {
+    return "Izveštaji i izvoz";
+  }
+
+  return "Opšte";
 }
