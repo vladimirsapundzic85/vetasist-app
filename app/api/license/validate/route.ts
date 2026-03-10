@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   resolveLicenseContext,
-  registerOrCheckDevice
+  registerOrCheckDevice,
+  getAvailableToolsForPlan,
 } from "@/app/lib/license-core";
 
 const corsHeaders = {
@@ -18,41 +19,6 @@ function jsonResponse(data: unknown, status = 200) {
       ...corsHeaders,
     },
   });
-}
-
-type ToolManifestItem = {
-  code: string;
-  name: string;
-  description: string;
-  version: string;
-  category: string;
-  species: string;
-  badge?: string;
-};
-
-function buildToolsManifest(): ToolManifestItem[] {
-  return [
-    {
-      code: "vb_zbirni_xlsx",
-      name: "VB Zbirni XLSX",
-      description:
-        "HID lista → podaci o gazdinstvu i životinjama, zbirni Excel izvoz.",
-      version: "1.0.1",
-      category: "Izveštaji i izvoz",
-      species: "goveda",
-      badge: "Aktivno",
-    },
-    {
-      code: "provera_telenja",
-      name: "Provera telenja",
-      description:
-        "Provera datuma telenja kroz potomstvo, sa double-check logikom i Excel izvozom.",
-      version: "2.10.6.2",
-      category: "Reprodukcija",
-      species: "goveda",
-      badge: "Aktivno",
-    },
-  ];
 }
 
 export async function OPTIONS() {
@@ -77,7 +43,21 @@ export async function POST(req: Request) {
     const context = await resolveLicenseContext(license_key);
 
     if (!context.ok) {
-      return jsonResponse({ ok: false, reason: context.error }, 403);
+      const status =
+        context.error === "license_key_not_found" || context.error === "no_subscription"
+          ? 404
+          : context.error === "server_error"
+            ? 500
+            : 403;
+
+      return jsonResponse(
+        {
+          ok: false,
+          reason: context.error,
+          details: context.details ?? null,
+        },
+        status
+      );
     }
 
     const deviceResult = await registerOrCheckDevice({
@@ -87,18 +67,28 @@ export async function POST(req: Request) {
     });
 
     if (!deviceResult.ok) {
+      const status =
+        deviceResult.error === "device_lookup_failed" ||
+        deviceResult.error === "device_insert_failed" ||
+        deviceResult.error === "device_update_failed" ||
+        deviceResult.error === "current_key_device_lookup_failed" ||
+        deviceResult.error === "server_error"
+          ? 500
+          : 403;
+
       return jsonResponse(
         {
           ok: false,
           reason: deviceResult.error,
+          details: deviceResult.details ?? null,
           limit: deviceResult.limit ?? null,
           device_count: deviceResult.deviceCount ?? null,
         },
-        403
+        status
       );
     }
 
-    const tools = buildToolsManifest();
+    const tools = await getAvailableToolsForPlan(context.subscription.plan_id);
 
     return jsonResponse({
       ok: true,
