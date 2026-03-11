@@ -44,7 +44,6 @@ export type DeviceRegistrationResult =
       error:
         | "device_limit_reached"
         | "device_lookup_failed"
-        | "device_upsert_failed"
         | "device_insert_failed"
         | "device_update_failed"
         | "current_key_device_lookup_failed"
@@ -151,36 +150,12 @@ export async function registerOrCheckDevice(params: {
     const planId = context.subscription.plan_id;
     const limit = deviceLimitForPlan(planId);
 
-    const { data: devices, error: devErr } = await supabase
-      .from("license_devices")
-      .select("device_id")
-      .eq("license_key", license_key);
-
-    if (devErr) {
-      return {
-        ok: false,
-        error: "device_lookup_failed",
-        details: devErr.message ?? null,
-      };
-    }
-
-    const known = new Set((devices ?? []).map((d) => String(d.device_id)));
-    const isNewDevice = !known.has(device_id);
-
-    if (isNewDevice && known.size >= limit) {
-      return {
-        ok: false,
-        error: "device_limit_reached",
-        limit,
-        deviceCount: known.size,
-      };
-    }
-
     const now = new Date().toISOString();
 
+    // 1) Da li ovaj uređaj već postoji za ovu licencu?
     const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
       .from("license_devices")
-      .select("license_key, device_id")
+      .select("license_key, device_id, status")
       .eq("license_key", license_key)
       .eq("device_id", device_id)
       .maybeSingle();
@@ -195,31 +170,31 @@ export async function registerOrCheckDevice(params: {
 
     const existsForCurrentKey = !!currentKeyDevice;
 
-    if (!existsForCurrentKey) {
-      const { error: insertErr } = await supabase
-        .from("license_devices")
-        .insert({
-          license_key,
-          device_id,
-          device_fp,
-          first_seen: now,
-          last_seen: now,
-        });
+    // 2) Ako uređaj već postoji, samo osveži trag i po potrebi ga vrati na active
+    if (existsForCurrentKey) {
+      const updatePayload: {
+        last_seen: string;
+        device_fp: string;
+        updated_at: string;
+        status?: string;
+        passive_at?: null;
+        revoked_at?: null;
+      } = {
+        last_seen: now,
+        device_fp,
+        updated_at: now,
+      };
 
-      if (insertErr) {
-        return {
-          ok: false,
-          error: "device_insert_failed",
-          details: insertErr.message ?? null,
-        };
+      // Ako je bio passive, aktivacija pri povratku je razumna.
+      // Ako je revoked, za sada ga ne diramo automatski.
+      if (currentKeyDevice.status === "passive") {
+        updatePayload.status = "active";
+        updatePayload.passive_at = null;
       }
-    } else {
+
       const { error: updateErr } = await supabase
         .from("license_devices")
-        .update({
-          last_seen: now,
-          device_fp,
-        })
+        .update(updatePayload)
         .eq("license_key", license_key)
         .eq("device_id", device_id);
 
@@ -230,13 +205,84 @@ export async function registerOrCheckDevice(params: {
           details: updateErr.message ?? null,
         };
       }
+
+      const { count: activeCount, error: activeCountErr } = await supabase
+        .from("license_devices")
+        .select("*", { count: "exact", head: true })
+        .eq("license_key", license_key)
+        .eq("status", "active");
+
+      if (activeCountErr) {
+        return {
+          ok: false,
+          error: "device_lookup_failed",
+          details: activeCountErr.message ?? null,
+        };
+      }
+
+      return {
+        ok: true,
+        limit,
+        isNewDevice: false,
+        deviceCount: activeCount ?? 0,
+      };
+    }
+
+    // 3) Novi uređaj: brojimo samo ACTIVE uređaje
+    const { count: activeCountBeforeInsert, error: activeCountErr } = await supabase
+      .from("license_devices")
+      .select("*", { count: "exact", head: true })
+      .eq("license_key", license_key)
+      .eq("status", "active");
+
+    if (activeCountErr) {
+      return {
+        ok: false,
+        error: "device_lookup_failed",
+        details: activeCountErr.message ?? null,
+      };
+    }
+
+    const activeCount = activeCountBeforeInsert ?? 0;
+
+    if (activeCount >= limit) {
+      return {
+        ok: false,
+        error: "device_limit_reached",
+        limit,
+        deviceCount: activeCount,
+      };
+    }
+
+    // 4) Insert novog ACTIVE uređaja
+    const { error: insertErr } = await supabase
+      .from("license_devices")
+      .insert({
+        license_key,
+        device_id,
+        device_fp,
+        first_seen: now,
+        last_seen: now,
+        status: "active",
+        passive_at: null,
+        revoked_at: null,
+        notes: null,
+        updated_at: now,
+      });
+
+    if (insertErr) {
+      return {
+        ok: false,
+        error: "device_insert_failed",
+        details: insertErr.message ?? null,
+      };
     }
 
     return {
       ok: true,
       limit,
-      isNewDevice,
-      deviceCount: isNewDevice ? known.size + 1 : known.size,
+      isNewDevice: true,
+      deviceCount: activeCount + 1,
     };
   } catch (err) {
     return {
@@ -357,10 +403,7 @@ export async function getAvailableToolsForPlan(
 function inferToolCategory(code: string, name: string): string {
   const key = `${code} ${name}`.toLowerCase();
 
-  if (
-    key.includes("telenj") ||
-    key.includes("reprodukc")
-  ) {
+  if (key.includes("telenj") || key.includes("reprodukc")) {
     return "Reprodukcija";
   }
 
