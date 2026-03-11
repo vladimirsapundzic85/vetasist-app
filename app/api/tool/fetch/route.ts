@@ -203,6 +203,7 @@ export async function POST(req: Request) {
 
     return jsonResponse({
       ok: true,
+      debug_route_version: "tool_fetch_runtime_v3",
       tool: {
         code: tool.code,
         name: tool.name,
