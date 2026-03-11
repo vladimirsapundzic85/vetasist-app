@@ -47,11 +47,6 @@ export async function POST(req: Request) {
     const license_key = String(body?.license_key || "").trim();
     const device_id = String(body?.device_id || "").trim();
     const tool_code = String(body?.tool_code || body?.tool_slug || "").trim();
-    const api_key = String(body?.api_key || "").trim();
-
-    if (api_key !== process.env.VETASIST_SCRIPT_API_KEY) {
-      return jsonResponse({ ok: false, error: "invalid_api_key" }, 401);
-    }
 
     if (!license_key) {
       return jsonResponse({ ok: false, error: "missing_license_key" }, 400);
