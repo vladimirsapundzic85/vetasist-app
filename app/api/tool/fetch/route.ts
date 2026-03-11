@@ -18,6 +18,13 @@ const supabase = createClient(
 
 const TOOLS_BUCKET = "Tools";
 
+type ToolRuntimeManifest =
+  | {
+      mode: "local_files";
+      files: string[];
+    }
+  | null;
+
 function jsonResponse(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -27,6 +34,34 @@ function jsonResponse(body: unknown, status = 200) {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
+}
+
+function getToolRuntime(toolCode: string, version: string): ToolRuntimeManifest {
+  const code = String(toolCode || "").trim();
+  const ver = String(version || "").trim();
+
+  if (!code || !ver) return null;
+
+  if (code === "vb_zbirni_xlsx") {
+    return {
+      mode: "local_files",
+      files: [
+        `tools/vb_zbirni_xlsx/${ver}/vendor/xlsx.full.min.js`,
+        `tools/vb_zbirni_xlsx/${ver}/script.js`,
+      ],
+    };
+  }
+
+  if (code === "provera_telenja") {
+    return {
+      mode: "local_files",
+      files: [
+        `tools/provera_telenja/${ver}/script.js`,
+      ],
+    };
+  }
+
+  return null;
 }
 
 export async function OPTIONS() {
@@ -164,6 +199,8 @@ export async function POST(req: Request) {
       );
     }
 
+    const runtime = getToolRuntime(tool.code, String(build.version || ""));
+
     return jsonResponse({
       ok: true,
       tool: {
@@ -176,6 +213,7 @@ export async function POST(req: Request) {
         payload_type: build.payload_type ?? "js",
       },
       script_url: signed.signedUrl,
+      runtime,
       meta: {
         plan: planId,
         valid_until: context.subscription.valid_until ?? null,
