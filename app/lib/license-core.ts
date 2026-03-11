@@ -65,12 +65,27 @@ export type AvailableToolItem = {
 
 const DEVICE_PASSIVE_AFTER_DAYS = 45;
 
-export function deviceLimitForPlan(plan: PlanId): number {
-  if (plan === "basic") return 1;
-  if (plan === "team") return 3;
-  if (plan === "pro") return 10;
-  if (plan === "exclusive") return 30;
-  return 1;
+async function getDeviceLimitForPlan(plan: PlanId): Promise<number> {
+  const normalizedPlan = String(plan || "").trim();
+
+  if (!normalizedPlan) return 1;
+
+  const { data, error } = await supabase
+    .from("plans")
+    .select("device_limit")
+    .eq("id", normalizedPlan)
+    .single();
+
+  if (error || !data) {
+    return 1;
+  }
+
+  const limit = Number(data.device_limit);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return 1;
+  }
+
+  return limit;
 }
 
 export async function resolveLicenseContext(
@@ -132,7 +147,9 @@ export async function resolveLicenseContext(
 
 async function passivizeStaleDevices(license_key: string): Promise<void> {
   const now = new Date();
-  const cutoff = new Date(now.getTime() - DEVICE_PASSIVE_AFTER_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff = new Date(
+    now.getTime() - DEVICE_PASSIVE_AFTER_DAYS * 24 * 60 * 60 * 1000
+  );
 
   const { error } = await supabase
     .from("license_devices")
@@ -170,13 +187,11 @@ export async function registerOrCheckDevice(params: {
     }
 
     const planId = context.subscription.plan_id;
-    const limit = deviceLimitForPlan(planId);
+    const limit = await getDeviceLimitForPlan(planId);
     const now = new Date().toISOString();
 
-    // 1) Automatski pasivizuj stale uređaje pre brojanja limita
     await passivizeStaleDevices(license_key);
 
-    // 2) Da li ovaj uređaj već postoji za ovu licencu?
     const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
       .from("license_devices")
       .select("license_key, device_id, status")
@@ -194,7 +209,6 @@ export async function registerOrCheckDevice(params: {
 
     const existsForCurrentKey = !!currentKeyDevice;
 
-    // 3) Ako uređaj već postoji, samo osveži trag i po potrebi ga vrati na active
     if (existsForCurrentKey) {
       const updatePayload: {
         last_seen: string;
@@ -249,7 +263,6 @@ export async function registerOrCheckDevice(params: {
       };
     }
 
-    // 4) Novi uređaj: brojimo samo ACTIVE uređaje
     const { count: activeCountBeforeInsert, error: activeCountErr } = await supabase
       .from("license_devices")
       .select("*", { count: "exact", head: true })
@@ -275,7 +288,6 @@ export async function registerOrCheckDevice(params: {
       };
     }
 
-    // 5) Insert novog ACTIVE uređaja
     const { error: insertErr } = await supabase
       .from("license_devices")
       .insert({
