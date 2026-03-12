@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const supabase = createClient(
-  process.env.SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
@@ -28,67 +31,145 @@ const PLAN_MAP: Record<number, { plan: string; device_limit: number }> = {
 };
 
 export async function POST(req: NextRequest) {
-  const bodyText = await req.text();
-  const signature = req.headers.get("x-signature") || "";
+  try {
+    const bodyText = await req.text();
+    const signature = req.headers.get("x-signature") || "";
 
-  if (!verifySignature(bodyText, signature)) {
-    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
+    if (!WEBHOOK_SECRET) {
+      return NextResponse.json(
+        { ok: false, error: "missing_webhook_secret" },
+        { status: 500 }
+      );
+    }
 
-  const body = JSON.parse(bodyText);
-  const event = body.meta?.event_name;
+    if (!verifySignature(bodyText, signature)) {
+      return NextResponse.json(
+        { ok: false, error: "invalid_signature" },
+        { status: 401 }
+      );
+    }
 
-  if (event !== "subscription_created" && event !== "order_created") {
-    return NextResponse.json({ ok: true });
-  }
+    const body = JSON.parse(bodyText);
+    const event = body?.meta?.event_name;
 
-  const data = body.data?.attributes;
+    if (event !== "subscription_created" && event !== "order_created") {
+      return NextResponse.json({ ok: true, ignored: true });
+    }
 
-  const variant_id = data.variant_id;
-  const email = data.user_email || data.customer_email || "unknown";
-  const owner_name = data.user_name || email;
+    const data = body?.data?.attributes ?? {};
 
-  const planInfo = PLAN_MAP[variant_id];
+    const variant_id = Number(data.variant_id);
+    const email =
+      String(data.user_email || data.customer_email || "").trim() || "unknown";
+    const owner_name =
+      String(data.user_name || data.customer_name || "").trim() || email;
 
-  if (!planInfo) {
-    return NextResponse.json({ error: "Unknown variant" });
-  }
+    const planInfo = PLAN_MAP[variant_id];
 
-  const { plan, device_limit } = planInfo;
+    if (!planInfo) {
+      return NextResponse.json(
+        { ok: false, error: "unknown_variant_id", variant_id },
+        { status: 400 }
+      );
+    }
 
-  const license_key = generateLicenseKey();
+    const { plan } = planInfo;
 
-  // 1️⃣ create organization (owner)
-  const { data: org } = await supabase
-    .from("organizations")
-    .insert({
-      name: owner_name,
-      owner_email: email,
-    })
-    .select()
-    .single();
+    // 1) Napravi zapis "vlasnika licence" u organizations
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .insert({
+        name: owner_name,
+      })
+      .select("id, name")
+      .single();
 
-  // 2️⃣ create subscription
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .insert({
-      organization_id: org.id,
-      plan: plan,
+    if (orgErr || !org) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "organization_insert_failed",
+          details: orgErr?.message ?? null,
+        },
+        { status: 500 }
+      );
+    }
+
+    // 2) Upiši subscription
+    const { error: subErr } = await supabase.from("subscriptions").insert({
+      org_id: org.id,
+      plan_id: plan,
       status: "active",
-    })
-    .select()
-    .single();
+      valid_until: null,
+    });
 
-  // 3️⃣ create license
-  await supabase.from("license_keys").insert({
-    license_key,
-    organization_id: org.id,
-    plan,
-    device_limit,
-  });
+    if (subErr) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "subscription_insert_failed",
+          details: subErr.message ?? null,
+        },
+        { status: 500 }
+      );
+    }
 
-  return NextResponse.json({
-    ok: true,
-    license_key,
-  });
+    // 3) Generiši jedinstveni license key
+    let license_key = "";
+    let inserted = false;
+    let attempts = 0;
+
+    while (!inserted && attempts < 10) {
+      attempts += 1;
+      license_key = generateLicenseKey();
+
+      const { error: licenseErr } = await supabase.from("license_keys").insert({
+        license_key,
+        org_id: org.id,
+        is_active: true,
+        plan,
+      });
+
+      if (!licenseErr) {
+        inserted = true;
+        break;
+      }
+
+      if (!String(licenseErr.message || "").toLowerCase().includes("duplicate")) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: "license_insert_failed",
+            details: licenseErr.message ?? null,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (!inserted) {
+      return NextResponse.json(
+        { ok: false, error: "license_generation_failed" },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      event,
+      plan,
+      email,
+      owner_name,
+      license_key,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "server_error",
+        details: err instanceof Error ? err.message : "unknown_server_error",
+      },
+      { status: 500 }
+    );
+  }
 }
