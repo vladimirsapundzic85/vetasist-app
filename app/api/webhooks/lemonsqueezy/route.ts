@@ -29,13 +29,13 @@ type PlanInfo = {
 };
 
 const PLAN_MAP: Record<number, PlanInfo> = {
-  // LIVE variants
+  // LIVE
   1358750: { plan: "basic", device_limit: 1 },
   1394223: { plan: "team", device_limit: 3 },
   1395047: { plan: "pro", device_limit: 10 },
   1395048: { plan: "exclusive", device_limit: 30 },
 
-  // TEST variants known so far
+  // TEST poznat do sada
   1395337: { plan: "basic", device_limit: 1 },
 };
 
@@ -76,7 +76,6 @@ export async function POST(req: NextRequest) {
     const event = body?.meta?.event_name;
     const data = body?.data?.attributes ?? {};
 
-    // Za sada licencu kreiramo samo na subscription_created
     if (event !== "subscription_created") {
       return NextResponse.json({ ok: true, ignored: true });
     }
@@ -87,8 +86,7 @@ export async function POST(req: NextRequest) {
       String(data.user_email || data.customer_email || "").trim() || "unknown";
     const owner_name =
       String(data.user_name || data.customer_name || "").trim() || email;
-    const renews_at =
-      data.renews_at ? String(data.renews_at).trim() : null;
+    const renews_at = data.renews_at ? String(data.renews_at).trim() : null;
 
     const planInfo = resolvePlanInfo(variant_id, product_name);
 
@@ -111,8 +109,9 @@ export async function POST(req: NextRequest) {
       .from("organizations")
       .insert({
         name: owner_name,
+        owner_email: email,
       })
-      .select("id, name")
+      .select("id, name, owner_email")
       .single();
 
     if (orgErr || !org) {
