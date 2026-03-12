@@ -23,24 +23,47 @@ function generateLicenseKey() {
   return `VTS-${part()}-${part()}-${part()}`;
 }
 
-const PLAN_MAP: Record<number, { plan: string; device_limit: number }> = {
+type PlanInfo = {
+  plan: "basic" | "team" | "pro" | "exclusive";
+  device_limit: number;
+};
+
+const PLAN_MAP: Record<number, PlanInfo> = {
+  // LIVE variants
   1358750: { plan: "basic", device_limit: 1 },
   1394223: { plan: "team", device_limit: 3 },
   1395047: { plan: "pro", device_limit: 10 },
   1395048: { plan: "exclusive", device_limit: 30 },
+
+  // TEST variants known so far
+  1395337: { plan: "basic", device_limit: 1 },
 };
+
+function resolvePlanInfo(variantId: number, productNameRaw: string): PlanInfo | null {
+  if (PLAN_MAP[variantId]) return PLAN_MAP[variantId];
+
+  const productName = String(productNameRaw || "").trim().toLowerCase();
+
+  if (productName.includes("basic")) {
+    return { plan: "basic", device_limit: 1 };
+  }
+  if (productName.includes("team")) {
+    return { plan: "team", device_limit: 3 };
+  }
+  if (productName.includes("pro")) {
+    return { plan: "pro", device_limit: 10 };
+  }
+  if (productName.includes("exclusive")) {
+    return { plan: "exclusive", device_limit: 30 };
+  }
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
     const bodyText = await req.text();
     const signature = req.headers.get("x-signature") || "";
-
-    if (!WEBHOOK_SECRET) {
-      return NextResponse.json(
-        { ok: false, error: "missing_webhook_secret" },
-        { status: 500 }
-      );
-    }
 
     if (!verifySignature(bodyText, signature)) {
       return NextResponse.json(
@@ -51,31 +74,39 @@ export async function POST(req: NextRequest) {
 
     const body = JSON.parse(bodyText);
     const event = body?.meta?.event_name;
+    const data = body?.data?.attributes ?? {};
 
-    if (event !== "subscription_created" && event !== "order_created") {
+    // Za sada licencu kreiramo samo na subscription_created
+    if (event !== "subscription_created") {
       return NextResponse.json({ ok: true, ignored: true });
     }
 
-    const data = body?.data?.attributes ?? {};
-
     const variant_id = Number(data.variant_id);
+    const product_name = String(data.product_name || "").trim();
     const email =
       String(data.user_email || data.customer_email || "").trim() || "unknown";
     const owner_name =
       String(data.user_name || data.customer_name || "").trim() || email;
+    const renews_at =
+      data.renews_at ? String(data.renews_at).trim() : null;
 
-    const planInfo = PLAN_MAP[variant_id];
+    const planInfo = resolvePlanInfo(variant_id, product_name);
 
     if (!planInfo) {
       return NextResponse.json(
-        { ok: false, error: "unknown_variant_id", variant_id },
+        {
+          ok: false,
+          error: "unknown_variant_id",
+          variant_id,
+          product_name,
+        },
         { status: 400 }
       );
     }
 
     const { plan } = planInfo;
 
-    // 1) Napravi zapis "vlasnika licence" u organizations
+    // 1) organization
     const { data: org, error: orgErr } = await supabase
       .from("organizations")
       .insert({
@@ -95,12 +126,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2) Upiši subscription
+    // 2) subscription
     const { error: subErr } = await supabase.from("subscriptions").insert({
       org_id: org.id,
       plan_id: plan,
       status: "active",
-      valid_until: null,
+      valid_until: renews_at,
     });
 
     if (subErr) {
@@ -114,7 +145,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 3) Generiši jedinstveni license key
+    // 3) license
     let license_key = "";
     let inserted = false;
     let attempts = 0;
@@ -160,6 +191,8 @@ export async function POST(req: NextRequest) {
       plan,
       email,
       owner_name,
+      product_name,
+      variant_id,
       license_key,
     });
   } catch (err) {
