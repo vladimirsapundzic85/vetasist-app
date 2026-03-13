@@ -1,64 +1,155 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import {
+  resetAllDevicesForLicense,
+  resetDeviceForLicense,
+  restoreResetBlockedDevice,
+} from "@/app/lib/license-core";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Admin key (drži odvojeno od script key-a!)
-function requireAdminKey(provided: string | undefined) {
-  const adminKey = process.env.VETASIST_ADMIN_API_KEY;
-  return adminKey && provided === adminKey;
+function json(data: unknown, status = 200) {
+  return NextResponse.json(data, { status });
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { admin_key, license_key, device_fp, reset_all } = body;
+    const body = await req.json().catch(() => null);
 
-    if (!requireAdminKey(admin_key)) {
-      return NextResponse.json({ ok: false, error: "invalid_admin_key" }, { status: 401 });
+    const adminKey = String(body?.admin_key || "").trim();
+    const licenseKey = String(body?.license_key || "").trim();
+    const deviceFp = String(body?.device_fp || "").trim();
+    const resetAll = !!body?.reset_all;
+    const action = String(body?.action || (resetAll ? "reset_all" : "reset")).trim();
+    const reason = body?.reason ? String(body.reason) : null;
+
+    if (adminKey !== process.env.VETASIST_ADMIN_API_KEY) {
+      return json({ ok: false, error: "invalid_admin_key" }, 401);
     }
 
-    if (!license_key) {
-      return NextResponse.json({ ok: false, error: "missing_license_key" }, { status: 400 });
+    if (!licenseKey) {
+      return json({ ok: false, error: "missing_license_key" }, 400);
     }
 
-    // ako reset_all = true -> briši sve uređaje za licencu
-    if (reset_all === true) {
-      const { error } = await supabase
-        .from("license_devices")
-        .delete()
-        .eq("license_key", license_key);
+    if (action === "reset_all") {
+      const result = await resetAllDevicesForLicense({
+        license_key: licenseKey,
+        performed_by: "admin",
+        reason,
+      });
 
-      if (error) {
-        return NextResponse.json({ ok: false, error: "delete_failed", detail: error }, { status: 500 });
+      if (!result.ok) {
+        const status = result.error === "server_error" ? 500 : 403;
+        return json(
+          {
+            ok: false,
+            error: result.error,
+            details: result.details ?? null,
+            reset_count: result.resetCount ?? null,
+            reset_limit: result.resetLimit ?? null,
+          },
+          status
+        );
       }
 
-      return NextResponse.json({ ok: true, deleted: "all" });
+      return json({
+        ok: true,
+        action: result.action,
+        affected: result.affected,
+        reset_count: result.resetCount,
+        reset_limit: result.resetLimit,
+        blocked_until: result.blockedUntil,
+      });
     }
 
-    // inače briši samo jedan uređaj
-    if (!device_fp) {
-      return NextResponse.json({ ok: false, error: "missing_device_fp" }, { status: 400 });
+    if (!deviceFp) {
+      return json({ ok: false, error: "missing_device_fp" }, 400);
     }
 
-    const { error } = await supabase
-      .from("license_devices")
-      .delete()
-      .eq("license_key", license_key)
-      .eq("device_fp", device_fp);
+    if (action === "restore") {
+      const result = await restoreResetBlockedDevice({
+        license_key: licenseKey,
+        device_fp: deviceFp,
+        performed_by: "admin",
+        reason,
+      });
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: "delete_failed", detail: error }, { status: 500 });
+      if (!result.ok) {
+        const status =
+          result.error === "server_error"
+            ? 500
+            : result.error === "device_not_found" || result.error === "device_not_reset_blocked"
+              ? 404
+              : 403;
+
+        return json(
+          {
+            ok: false,
+            error: result.error,
+            details: result.details ?? null,
+            reset_count: result.resetCount ?? null,
+            reset_limit: result.resetLimit ?? null,
+            blocked_until: result.blockedUntil ?? null,
+          },
+          status
+        );
+      }
+
+      return json({
+        ok: true,
+        action: result.action,
+        device_fp: result.deviceFp,
+        device_id: result.deviceId,
+        reset_count: result.resetCount,
+        reset_limit: result.resetLimit,
+      });
     }
 
-    return NextResponse.json({ ok: true, deleted: device_fp });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "server_error", detail: e?.message ?? String(e) },
-      { status: 500 }
+    const result = await resetDeviceForLicense({
+      license_key: licenseKey,
+      device_fp: deviceFp,
+      performed_by: "admin",
+      reason,
+    });
+
+    if (!result.ok) {
+      const status =
+        result.error === "server_error"
+          ? 500
+          : result.error === "device_not_found"
+            ? 404
+            : 403;
+
+      return json(
+        {
+          ok: false,
+          error: result.error,
+          details: result.details ?? null,
+          reset_count: result.resetCount ?? null,
+          reset_limit: result.resetLimit ?? null,
+          blocked_until: result.blockedUntil ?? null,
+        },
+        status
+      );
+    }
+
+    return json({
+      ok: true,
+      action: result.action,
+      device_fp: result.deviceFp,
+      device_id: result.deviceId,
+      reset_count: result.resetCount,
+      reset_limit: result.resetLimit,
+      blocked_until: result.blockedUntil,
+    });
+  } catch (err) {
+    return json(
+      {
+        ok: false,
+        error: "server_error",
+        details: err instanceof Error ? err.message : "unknown_server_error",
+      },
+      500
     );
   }
 }
