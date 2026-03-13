@@ -1,312 +1,563 @@
-'use client'
-
-import { useEffect, useMemo, useState } from 'react'
-import { supabase } from './lib/supabase'
-
-type Org = { id: string; name: string }
-type Sub = { org_id: string; plan_id: string; status: string; valid_until: string | null }
-type Plan = { id: string; name: string; price_eur: number; seats: number; max_sessions_per_user: number }
-
-export default function Home() {
-  const [email, setEmail] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
-
-  const [orgs, setOrgs] = useState<Org[]>([])
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null)
-
-  const [plans, setPlans] = useState<Plan[]>([])
-  const [sub, setSub] = useState<Sub | null>(null)
-
-  const [orgName, setOrgName] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  const isAuthed = useMemo(() => !!userId, [userId])
-
-  async function refreshSession() {
-    const { data, error } = await supabase.auth.getSession()
-    if (error) throw error
-
-    const u = data.session?.user ?? null
-    setEmail(u?.email ?? null)
-    setUserId(u?.id ?? null)
-  }
-
-  async function loadPlans() {
-    const { data, error } = await supabase
-      .from('plans')
-      .select('*')
-      .order('price_eur', { ascending: true })
-
-    if (error) throw error
-    setPlans((data as Plan[]) ?? [])
-  }
-
-  // ✅ Učitaj orgs preko org_members (samo moje), ne direktno iz organizations.
-  async function loadOrgs(currentUserId: string) {
-    const { data, error } = await supabase
-      .from('org_members')
-      .select('org_id, organizations ( id, name )')
-      .eq('user_id', currentUserId)
-      .order('created_at', { ascending: false })
-
-    if (error) throw error
-
-    const list: Org[] =
-      (data ?? [])
-        .map((row: any) => row.organizations)
-        .filter(Boolean)
-        .map((o: any) => ({ id: o.id as string, name: o.name as string })) ?? []
-
-    setOrgs(list)
-
-    // Ako aktivna nije setovana, uzmi prvu.
-    if (!activeOrgId && list.length) setActiveOrgId(list[0].id)
-
-    // Ako je aktivna obrisana / više nije moja, resetuj.
-    if (activeOrgId && list.length && !list.some((o) => o.id === activeOrgId)) {
-      setActiveOrgId(list[0].id)
-    }
-    if (activeOrgId && list.length === 0) {
-      setActiveOrgId(null)
-    }
-  }
-
-  async function loadSub(orgId: string) {
-    const { data, error } = await supabase
-      .from('subscriptions')
-      .select('*')
-      .eq('org_id', orgId)
-      .maybeSingle()
-
-    if (error) throw error
-    setSub((data as Sub) ?? null)
-  }
-
-  useEffect(() => {
-    ;(async () => {
-      try {
-        setErr(null)
-        await refreshSession()
-        await loadPlans()
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
-
-    const { data: subAuth } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null)
-      setUserId(session?.user?.id ?? null)
-    })
-
-    return () => {
-      subAuth.subscription.unsubscribe()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Kad dobijemo userId, učitaj orgs
-  useEffect(() => {
-    if (!userId) {
-      setOrgs([])
-      setActiveOrgId(null)
-      setSub(null)
-      return
-    }
-
-    ;(async () => {
-      try {
-        setErr(null)
-        await loadOrgs(userId)
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId])
-
-  // Kad se promeni aktivna org, učitaj subscription
-  useEffect(() => {
-    if (!activeOrgId) {
-      setSub(null)
-      return
-    }
-
-    ;(async () => {
-      try {
-        setErr(null)
-        await loadSub(activeOrgId)
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
-  }, [activeOrgId])
-
-  async function createOrg() {
-    const name = orgName.trim()
-    if (!name) return
-
-    setLoading(true)
-    setErr(null)
-    setMsg(null)
-
-    try {
-      const { data: me, error: meErr } = await supabase.auth.getUser()
-      if (meErr) throw meErr
-      const uid = me.user?.id
-      if (!uid) throw new Error('Nisi ulogovan.')
-
-      // 1) create org
-      const { data: org, error: orgErr } = await supabase
-        .from('organizations')
-        .insert({ name })
-        .select('id,name')
-        .single()
-
-      if (orgErr) throw orgErr
-
-      const orgId = (org as Org).id
-
-      // 2) add me as owner
-      const { error: memErr } = await supabase.from('org_members').insert({
-        org_id: orgId,
-        user_id: uid,
-        role: 'owner'
-      })
-      if (memErr) throw memErr
-
-      // 3) create inactive subscription row
-      const { error: subErr } = await supabase.from('subscriptions').insert({
-        org_id: orgId,
-        plan_id: 'basic',
-        status: 'inactive',
-        valid_until: null
-      })
-      if (subErr) throw subErr
-
-      setOrgName('')
-      setMsg(`Organizacija kreirana: ${(org as Org).name}`)
-
-      // refresh orgs from membership
-      await loadOrgs(uid)
-      setActiveOrgId(orgId)
-      await loadSub(orgId)
-    } catch (e: any) {
-      setErr(e?.message ?? String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function logout() {
-    setLoading(true)
-    setErr(null)
-    setMsg(null)
-    const { error } = await supabase.auth.signOut()
-    setLoading(false)
-    if (error) setErr(error.message)
-  }
-
+export default function HomePage() {
   return (
-    <main style={{ padding: 20, maxWidth: 900 }}>
-      <h1>VetAsist — Licenca (MVP)</h1>
-
-      <div style={{ margin: '12px 0' }}>
-        {email ? (
-          <>
-            <span>
-              Ulogovan: <b>{email}</b>
-            </span>
-            <button onClick={logout} disabled={loading} style={{ marginLeft: 10 }}>
-              Logout
-            </button>
-          </>
-        ) : (
-          <span>
-            Nisi ulogovan. Idi na <a href="/auth">/auth</a>
-          </span>
-        )}
-      </div>
-
-      {msg && <p style={{ color: 'green' }}>{msg}</p>}
-      {err && <p style={{ color: 'crimson' }}>Greška: {err}</p>}
-
-      <hr />
-
-      <h2>Kreiraj organizaciju</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          value={orgName}
-          onChange={(e) => setOrgName(e.target.value)}
-          placeholder="Naziv organizacije…"
-          style={{ flex: 1, padding: 8 }}
-          disabled={!isAuthed || loading}
-        />
-        <button onClick={createOrg} disabled={!isAuthed || loading}>
-          {loading ? 'Kreiram…' : 'Kreiraj'}
-        </button>
-      </div>
-
-      <hr />
-
-      <h2>Moje organizacije</h2>
-      {orgs.length === 0 ? (
-        <p>Nema organizacija još. Kreiraj prvu.</p>
-      ) : (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {orgs.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setActiveOrgId(o.id)}
+    <main
+      style={{
+        fontFamily: "Arial, sans-serif",
+        color: "#1f2937",
+        background: "#f8fafc",
+      }}
+    >
+      <section
+        style={{
+          background:
+            "linear-gradient(135deg, #0f172a 0%, #1e3a8a 45%, #0ea5e9 100%)",
+          color: "white",
+          padding: "72px 20px 56px",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 1180,
+            margin: "0 auto",
+            display: "grid",
+            gridTemplateColumns: "1.2fr 0.8fr",
+            gap: 32,
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <div
               style={{
-                padding: '8px 10px',
-                border: activeOrgId === o.id ? '2px solid black' : '1px solid #ccc',
-                background: activeOrgId === o.id ? '#eee' : 'white',
-                cursor: 'pointer'
+                display: "inline-block",
+                padding: "8px 12px",
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.12)",
+                fontSize: 13,
+                fontWeight: 700,
+                marginBottom: 18,
               }}
             >
-              {o.name}
-            </button>
-          ))}
+              VetAssist • AIRS automatizacija
+            </div>
+
+            <h1
+              style={{
+                fontSize: 52,
+                lineHeight: 1.05,
+                margin: "0 0 18px",
+                fontWeight: 800,
+                letterSpacing: -1,
+              }}
+            >
+              Prekini ručni rad u AIRS-u.
+            </h1>
+
+            <p
+              style={{
+                fontSize: 20,
+                lineHeight: 1.6,
+                margin: "0 0 26px",
+                maxWidth: 760,
+                color: "rgba(255,255,255,0.92)",
+              }}
+            >
+              VetAssist je skup alata za veterinarske službe i odgajivačke
+              organizacije koji automatizuje pretragu, obradu i izvoz podataka
+              iz AIRS-a i srodnih evidencija.
+            </p>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 14,
+                flexWrap: "wrap",
+                marginBottom: 18,
+              }}
+            >
+              <a
+                href="/app"
+                style={{
+                  display: "inline-block",
+                  padding: "14px 20px",
+                  borderRadius: 10,
+                  textDecoration: "none",
+                  background: "white",
+                  color: "#111827",
+                  fontWeight: 700,
+                  border: "1px solid white",
+                }}
+              >
+                Otvori aplikaciju
+              </a>
+
+              <a
+                href="#pricing"
+                style={{
+                  display: "inline-block",
+                  padding: "14px 20px",
+                  borderRadius: 10,
+                  textDecoration: "none",
+                  background: "transparent",
+                  color: "white",
+                  fontWeight: 700,
+                  border: "1px solid rgba(255,255,255,0.45)",
+                }}
+              >
+                Pogledaj cenu
+              </a>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 18,
+                flexWrap: "wrap",
+                fontSize: 15,
+                color: "rgba(255,255,255,0.9)",
+              }}
+            >
+              <span>✔ Brža obrada zahteva</span>
+              <span>✔ Manje grešaka u radu</span>
+              <span>✔ Izvoz u Excel / CSV</span>
+            </div>
+          </div>
+
+          <div
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              border: "1px solid rgba(255,255,255,0.18)",
+              borderRadius: 18,
+              padding: 24,
+              boxShadow: "0 16px 40px rgba(0,0,0,0.18)",
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                opacity: 0.9,
+                marginBottom: 8,
+                fontWeight: 700,
+              }}
+            >
+              Šta VetAssist rešava
+            </div>
+
+            <ul
+              style={{
+                margin: 0,
+                paddingLeft: 18,
+                lineHeight: 1.8,
+                fontSize: 16,
+              }}
+            >
+              <li>ponavljanje istih AIRS upita iz dana u dan</li>
+              <li>ručno prepisivanje i lepljenje podataka</li>
+              <li>sporo formiranje izveštaja za organizacije</li>
+              <li>gubljenje vremena na kontrolne preglede</li>
+              <li>greške koje nastaju zbog ručne obrade</li>
+            </ul>
+
+            <div
+              style={{
+                marginTop: 20,
+                paddingTop: 18,
+                borderTop: "1px solid rgba(255,255,255,0.15)",
+                fontSize: 15,
+                lineHeight: 1.7,
+                color: "rgba(255,255,255,0.92)",
+              }}
+            >
+              Rezultat: manje kliktanja, manje prepisivanja, više gotovih
+              rezultata za isto vreme.
+            </div>
+          </div>
         </div>
-      )}
+      </section>
 
-      <hr />
+      <section style={{ padding: "56px 20px", background: "white" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+          <h2
+            style={{
+              fontSize: 34,
+              margin: "0 0 12px",
+              fontWeight: 800,
+              textAlign: "center",
+            }}
+          >
+            Za koga je VetAssist
+          </h2>
 
-      <h2>Planovi</h2>
-      <ul>
-        {plans.map((p) => (
-          <li key={p.id}>
-            <b>{p.name}</b> — €{p.price_eur}/mes • seats: {p.seats} • sessions/user: {p.max_sessions_per_user}
-          </li>
-        ))}
-      </ul>
+          <p
+            style={{
+              textAlign: "center",
+              color: "#4b5563",
+              fontSize: 18,
+              margin: "0 auto 34px",
+              maxWidth: 760,
+              lineHeight: 1.6,
+            }}
+          >
+            Napravljen za službe koje rade veliki broj ponovljivih provera,
+            evidencija i izveštaja i više ne žele da troše sate na ručni rad.
+          </p>
 
-      <h2>Licenca (za izabranu organizaciju)</h2>
-      {!activeOrgId ? (
-        <p>Izaberi organizaciju.</p>
-      ) : !sub ? (
-        <p>Nema subscription reda (ovo ne bi trebalo da se desi ako je org kreiran iz aplikacije).</p>
-      ) : (
-        <div>
-          <p>
-            <b>Status:</b> {sub.status}
-          </p>
-          <p>
-            <b>Plan:</b> {sub.plan_id}
-          </p>
-          <p>
-            <b>Valid until:</b> {sub.valid_until ?? 'n/a'}
-          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 20,
+            }}
+          >
+            <InfoCard
+              title="Veterinarske službe"
+              text="Brza obrada spiskova, provera stanja, priprema rezultata i manje ručne administracije."
+            />
+            <InfoCard
+              title="Odgajivačke organizacije"
+              text="Automatizacija kontrola, izvoza i pripreme podataka za dalju obradu i izveštavanje."
+            />
+            <InfoCard
+              title="Administrativni timovi"
+              text="Manje ponavljanja istih koraka, manje kopiranja podataka i manje prostora za grešku."
+            />
+          </div>
         </div>
-      )}
+      </section>
 
-      <hr />
+      <section style={{ padding: "56px 20px", background: "#eef2ff" }}>
+        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+          <h2
+            style={{
+              fontSize: 34,
+              margin: "0 0 32px",
+              fontWeight: 800,
+              textAlign: "center",
+            }}
+          >
+            Šta dobijaš
+          </h2>
 
-      <p style={{ opacity: 0.8 }}>
-        Sledeće: “Activate license” (manual admin) + session limit + endpoint za skripte da proveri status licence.
-      </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              gap: 20,
+            }}
+          >
+            <FeatureCard
+              title="Automatizovane pretrage"
+              text="Alati izvršavaju ponovljive AIRS postupke umesto korisnika i smanjuju broj ručnih klikova."
+            />
+            <FeatureCard
+              title="Izvoz rezultata"
+              text="Rezultati se pripremaju za Excel i dalju obradu umesto da ih ručno sastavljaš svaki put."
+            />
+            <FeatureCard
+              title="Standardizovan proces"
+              text="Isti zadatak se izvršava istim redosledom koraka svaki put, bez improvizacije."
+            />
+            <FeatureCard
+              title="Kontrola pristupa"
+              text="Pristup alatima je vezan za licencu, plan i ograničenje broja uređaja."
+            />
+          </div>
+        </div>
+      </section>
+
+      <section id="pricing" style={{ padding: "64px 20px", background: "white" }}>
+        <div style={{ maxWidth: 980, margin: "0 auto", textAlign: "center" }}>
+          <h2
+            style={{
+              fontSize: 34,
+              margin: "0 0 12px",
+              fontWeight: 800,
+            }}
+          >
+            Jednostavna cena
+          </h2>
+
+          <p
+            style={{
+              color: "#4b5563",
+              fontSize: 18,
+              margin: "0 auto 30px",
+              maxWidth: 720,
+              lineHeight: 1.6,
+            }}
+          >
+            VetAssist se naplaćuje po organizaciji, uz planove prilagođene
+            broju uređaja i obimu rada.
+          </p>
+
+          <div
+            style={{
+              maxWidth: 520,
+              margin: "0 auto",
+              border: "1px solid #dbeafe",
+              borderRadius: 18,
+              padding: 30,
+              boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
+              background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-block",
+                padding: "6px 10px",
+                borderRadius: 999,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+                fontWeight: 700,
+                fontSize: 13,
+                marginBottom: 14,
+              }}
+            >
+              Početni plan
+            </div>
+
+            <div
+              style={{
+                fontSize: 48,
+                fontWeight: 800,
+                lineHeight: 1,
+                marginBottom: 8,
+              }}
+            >
+              15€
+              <span
+                style={{
+                  fontSize: 18,
+                  fontWeight: 600,
+                  color: "#6b7280",
+                }}
+              >
+                {" "}
+                / mesečno
+              </span>
+            </div>
+
+            <div
+              style={{
+                color: "#4b5563",
+                fontSize: 16,
+                marginBottom: 22,
+              }}
+            >
+              po organizaciji
+            </div>
+
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: "0 0 24px",
+                textAlign: "left",
+                lineHeight: 1.9,
+                fontSize: 16,
+              }}
+            >
+              <li>✔ pristup osnovnim alatima</li>
+              <li>✔ licenca po organizaciji</li>
+              <li>✔ kontrola broja uređaja</li>
+              <li>✔ podrška putem email-a</li>
+            </ul>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                justifyContent: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <a
+                href="/app"
+                style={{
+                  display: "inline-block",
+                  padding: "14px 20px",
+                  borderRadius: 10,
+                  textDecoration: "none",
+                  background: "#111827",
+                  color: "white",
+                  fontWeight: 700,
+                  border: "1px solid #111827",
+                }}
+              >
+                Otvori aplikaciju
+              </a>
+
+              <a
+                href="mailto:vladimirsapundzic@gmail.com"
+                style={{
+                  display: "inline-block",
+                  padding: "14px 20px",
+                  borderRadius: 10,
+                  textDecoration: "none",
+                  background: "white",
+                  color: "#111827",
+                  fontWeight: 700,
+                  border: "1px solid #d1d5db",
+                }}
+              >
+                Zatraži demo
+              </a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ padding: "64px 20px", background: "#0f172a", color: "white" }}>
+        <div
+          style={{
+            maxWidth: 980,
+            margin: "0 auto",
+            textAlign: "center",
+          }}
+        >
+          <h2
+            style={{
+              fontSize: 34,
+              margin: "0 0 14px",
+              fontWeight: 800,
+            }}
+          >
+            Prestani da trošiš sate na iste AIRS korake.
+          </h2>
+
+          <p
+            style={{
+              maxWidth: 760,
+              margin: "0 auto 24px",
+              fontSize: 18,
+              lineHeight: 1.7,
+              color: "rgba(255,255,255,0.85)",
+            }}
+          >
+            VetAssist je napravljen da skine najdosadniji deo posla sa ljudi koji
+            svakodnevno rade proveru, obradu i izvoz podataka.
+          </p>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 14,
+              justifyContent: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <a
+              href="/app"
+              style={{
+                display: "inline-block",
+                padding: "14px 20px",
+                borderRadius: 10,
+                textDecoration: "none",
+                background: "white",
+                color: "#111827",
+                fontWeight: 700,
+                border: "1px solid white",
+              }}
+            >
+              Idi na aplikaciju
+            </a>
+
+            <a
+              href="mailto:vladimirsapundzic@gmail.com"
+              style={{
+                display: "inline-block",
+                padding: "14px 20px",
+                borderRadius: 10,
+                textDecoration: "none",
+                background: "transparent",
+                color: "white",
+                fontWeight: 700,
+                border: "1px solid rgba(255,255,255,0.35)",
+              }}
+            >
+              Kontakt
+            </a>
+          </div>
+        </div>
+      </section>
     </main>
-  )
+  );
+}
+
+function InfoCard({
+  title,
+  text,
+}: {
+  title: string;
+  text: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "#f8fafc",
+        border: "1px solid #e5e7eb",
+        borderRadius: 16,
+        padding: 22,
+      }}
+    >
+      <h3
+        style={{
+          margin: "0 0 10px",
+          fontSize: 22,
+          fontWeight: 800,
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        style={{
+          margin: 0,
+          color: "#4b5563",
+          lineHeight: 1.7,
+          fontSize: 16,
+        }}
+      >
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function FeatureCard({
+  title,
+  text,
+}: {
+  title: string;
+  text: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "white",
+        border: "1px solid #dbeafe",
+        borderRadius: 16,
+        padding: 22,
+      }}
+    >
+      <h3
+        style={{
+          margin: "0 0 10px",
+          fontSize: 22,
+          fontWeight: 800,
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        style={{
+          margin: 0,
+          color: "#4b5563",
+          lineHeight: 1.7,
+          fontSize: 16,
+        }}
+      >
+        {text}
+      </p>
+    </div>
+  );
 }
