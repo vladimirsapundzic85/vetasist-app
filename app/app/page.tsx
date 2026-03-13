@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { supabase } from './lib/supabase'
+import { supabase } from '../lib/supabase'
 
 type Org = { id: string; name: string }
 type Sub = { org_id: string; plan_id: string; status: string; valid_until: string | null }
@@ -43,7 +43,6 @@ export default function Home() {
     setPlans((data as Plan[]) ?? [])
   }
 
-  // ✅ Učitaj orgs preko org_members (samo moje), ne direktno iz organizations.
   async function loadOrgs(currentUserId: string) {
     const { data, error } = await supabase
       .from('org_members')
@@ -61,13 +60,12 @@ export default function Home() {
 
     setOrgs(list)
 
-    // Ako aktivna nije setovana, uzmi prvu.
     if (!activeOrgId && list.length) setActiveOrgId(list[0].id)
 
-    // Ako je aktivna obrisana / više nije moja, resetuj.
     if (activeOrgId && list.length && !list.some((o) => o.id === activeOrgId)) {
       setActiveOrgId(list[0].id)
     }
+
     if (activeOrgId && list.length === 0) {
       setActiveOrgId(null)
     }
@@ -103,10 +101,8 @@ export default function Home() {
     return () => {
       subAuth.subscription.unsubscribe()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Kad dobijemo userId, učitaj orgs
   useEffect(() => {
     if (!userId) {
       setOrgs([])
@@ -123,10 +119,8 @@ export default function Home() {
         setErr(e?.message ?? String(e))
       }
     })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId])
 
-  // Kad se promeni aktivna org, učitaj subscription
   useEffect(() => {
     if (!activeOrgId) {
       setSub(null)
@@ -154,10 +148,10 @@ export default function Home() {
     try {
       const { data: me, error: meErr } = await supabase.auth.getUser()
       if (meErr) throw meErr
+
       const uid = me.user?.id
       if (!uid) throw new Error('Nisi ulogovan.')
 
-      // 1) create org
       const { data: org, error: orgErr } = await supabase
         .from('organizations')
         .insert({ name })
@@ -168,27 +162,26 @@ export default function Home() {
 
       const orgId = (org as Org).id
 
-      // 2) add me as owner
       const { error: memErr } = await supabase.from('org_members').insert({
         org_id: orgId,
         user_id: uid,
         role: 'owner'
       })
+
       if (memErr) throw memErr
 
-      // 3) create inactive subscription row
       const { error: subErr } = await supabase.from('subscriptions').insert({
         org_id: orgId,
         plan_id: 'basic',
         status: 'inactive',
         valid_until: null
       })
+
       if (subErr) throw subErr
 
       setOrgName('')
       setMsg(`Organizacija kreirana: ${(org as Org).name}`)
 
-      // refresh orgs from membership
       await loadOrgs(uid)
       setActiveOrgId(orgId)
       await loadSub(orgId)
@@ -203,7 +196,9 @@ export default function Home() {
     setLoading(true)
     setErr(null)
     setMsg(null)
+
     const { error } = await supabase.auth.signOut()
+
     setLoading(false)
     if (error) setErr(error.message)
   }
@@ -278,7 +273,8 @@ export default function Home() {
       <ul>
         {plans.map((p) => (
           <li key={p.id}>
-            <b>{p.name}</b> — €{p.price_eur}/mes • seats: {p.seats} • sessions/user: {p.max_sessions_per_user}
+            <b>{p.name}</b> — €{p.price_eur}/mes • seats: {p.seats} • sessions/user:{' '}
+            {p.max_sessions_per_user}
           </li>
         ))}
       </ul>
@@ -302,10 +298,9 @@ export default function Home() {
         </div>
       )}
 
-      <hr />
-
       <p style={{ opacity: 0.8 }}>
-        Sledeće: “Activate license” (manual admin) + session limit + endpoint za skripte da proveri status licence.
+        Sledeće: “Activate license” (manual admin) + session limit + endpoint za skripte da
+        proveri status licence.
       </p>
     </main>
   )
