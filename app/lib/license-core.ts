@@ -47,10 +47,15 @@ export type DeviceRegistrationResult =
         | "device_insert_failed"
         | "device_update_failed"
         | "current_key_device_lookup_failed"
+        | "device_reset_cooldown_active"
+        | "device_revoked"
         | "server_error";
       details?: string | null;
       limit?: number;
       deviceCount?: number;
+      blockedUntil?: string | null;
+      resetLimit?: number;
+      resetCount?: number;
     };
 
 export type AvailableToolItem = {
@@ -63,7 +68,39 @@ export type AvailableToolItem = {
   badge?: string;
 };
 
+export type DeviceResetResult =
+  | {
+      ok: true;
+      action: "reset" | "restore";
+      licenseKey: string;
+      orgId: string;
+      deviceId: string | null;
+      deviceFp: string;
+      resetCount: number;
+      resetLimit: number;
+      blockedUntil: string | null;
+    }
+  | {
+      ok: false;
+      error:
+        | "license_key_not_found"
+        | "license_key_inactive"
+        | "no_subscription"
+        | "inactive_license"
+        | "expired"
+        | "device_not_found"
+        | "device_not_reset_blocked"
+        | "device_limit_reached"
+        | "reset_limit_reached"
+        | "server_error";
+      details?: string | null;
+      resetCount?: number;
+      resetLimit?: number;
+      blockedUntil?: string | null;
+    };
+
 const DEVICE_PASSIVE_AFTER_DAYS = 45;
+const RESET_COOLDOWN_DAYS = 30;
 
 async function getDeviceLimitForPlan(plan: PlanId): Promise<number> {
   const normalizedPlan = String(plan || "").trim();
@@ -86,6 +123,51 @@ async function getDeviceLimitForPlan(plan: PlanId): Promise<number> {
   }
 
   return limit;
+}
+
+async function getMonthlyResetLimitForPlan(plan: PlanId): Promise<number> {
+  const normalizedPlan = String(plan || "").trim();
+
+  if (!normalizedPlan) return 0;
+
+  const { data, error } = await supabase
+    .from("plans")
+    .select("monthly_device_resets")
+    .eq("id", normalizedPlan)
+    .single();
+
+  if (error || !data) {
+    return 0;
+  }
+
+  const limit = Number(data.monthly_device_resets);
+  if (!Number.isFinite(limit) || limit < 0) {
+    return 0;
+  }
+
+  return limit;
+}
+
+function getCurrentMonthStartIso(): string {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  return start.toISOString();
+}
+
+async function countMonthlyDeviceResets(license_key: string): Promise<number> {
+  const monthStart = getCurrentMonthStartIso();
+
+  const { count, error } = await supabase
+    .from("license_device_resets")
+    .select("*", { count: "exact", head: true })
+    .eq("license_key", license_key)
+    .gte("created_at", monthStart);
+
+  if (error) {
+    throw new Error(`count_monthly_device_resets_failed:${error.message}`);
+  }
+
+  return count ?? 0;
 }
 
 export async function resolveLicenseContext(
@@ -188,13 +270,15 @@ export async function registerOrCheckDevice(params: {
 
     const planId = context.subscription.plan_id;
     const limit = await getDeviceLimitForPlan(planId);
-    const now = new Date().toISOString();
+    const resetLimit = await getMonthlyResetLimitForPlan(planId);
+    const resetCount = await countMonthlyDeviceResets(license_key);
+    const nowIso = new Date().toISOString();
 
     await passivizeStaleDevices(license_key);
 
     const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
       .from("license_devices")
-      .select("license_key, device_id, status")
+      .select("license_key, device_id, device_fp, status, blocked_until")
       .eq("license_key", license_key)
       .eq("device_id", device_id)
       .maybeSingle();
@@ -210,6 +294,88 @@ export async function registerOrCheckDevice(params: {
     const existsForCurrentKey = !!currentKeyDevice;
 
     if (existsForCurrentKey) {
+      const currentStatus = String(currentKeyDevice.status || "").trim();
+      const blockedUntil = currentKeyDevice.blocked_until
+        ? String(currentKeyDevice.blocked_until)
+        : null;
+
+      if (currentStatus === "revoked") {
+        return {
+          ok: false,
+          error: "device_revoked",
+          details: "device_is_revoked",
+          limit,
+          resetLimit,
+          resetCount,
+        };
+      }
+
+      if (currentStatus === "reset_blocked") {
+        if (blockedUntil && new Date(blockedUntil) > new Date()) {
+          return {
+            ok: false,
+            error: "device_reset_cooldown_active",
+            details: "device_is_under_reset_cooldown",
+            limit,
+            blockedUntil,
+            resetLimit,
+            resetCount,
+          };
+        }
+
+        const { count: activeCountBeforeReactivation, error: activeCountErr } = await supabase
+          .from("license_devices")
+          .select("*", { count: "exact", head: true })
+          .eq("license_key", license_key)
+          .eq("status", "active");
+
+        if (activeCountErr) {
+          return {
+            ok: false,
+            error: "device_lookup_failed",
+            details: activeCountErr.message ?? null,
+          };
+        }
+
+        const activeCount = activeCountBeforeReactivation ?? 0;
+        if (activeCount >= limit) {
+          return {
+            ok: false,
+            error: "device_limit_reached",
+            limit,
+            deviceCount: activeCount,
+            resetLimit,
+            resetCount,
+          };
+        }
+
+        const { error: reactivateErr } = await supabase
+          .from("license_devices")
+          .update({
+            status: "active",
+            blocked_until: null,
+            last_seen: nowIso,
+            updated_at: nowIso,
+          })
+          .eq("license_key", license_key)
+          .eq("device_id", device_id);
+
+        if (reactivateErr) {
+          return {
+            ok: false,
+            error: "device_update_failed",
+            details: reactivateErr.message ?? null,
+          };
+        }
+
+        return {
+          ok: true,
+          limit,
+          isNewDevice: false,
+          deviceCount: activeCount + 1,
+        };
+      }
+
       const updatePayload: {
         last_seen: string;
         device_fp: string;
@@ -217,12 +383,12 @@ export async function registerOrCheckDevice(params: {
         status?: string;
         passive_at?: null;
       } = {
-        last_seen: now,
+        last_seen: nowIso,
         device_fp,
-        updated_at: now,
+        updated_at: nowIso,
       };
 
-      if (currentKeyDevice.status === "passive") {
+      if (currentStatus === "passive") {
         updatePayload.status = "active";
         updatePayload.passive_at = null;
       }
@@ -285,6 +451,8 @@ export async function registerOrCheckDevice(params: {
         error: "device_limit_reached",
         limit,
         deviceCount: activeCount,
+        resetLimit,
+        resetCount,
       };
     }
 
@@ -294,13 +462,16 @@ export async function registerOrCheckDevice(params: {
         license_key,
         device_id,
         device_fp,
-        first_seen: now,
-        last_seen: now,
+        first_seen: nowIso,
+        last_seen: nowIso,
         status: "active",
         passive_at: null,
         revoked_at: null,
         notes: null,
-        updated_at: now,
+        updated_at: nowIso,
+        blocked_until: null,
+        reset_at: null,
+        reset_reason: null,
       });
 
     if (insertErr) {
@@ -316,6 +487,457 @@ export async function registerOrCheckDevice(params: {
       limit,
       isNewDevice: true,
       deviceCount: activeCount + 1,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "server_error",
+      details: err instanceof Error ? err.message : "unknown_server_error",
+    };
+  }
+}
+
+async function getLicenseOrgAndPlan(license_key: string): Promise<{
+  orgId: string;
+  planId: string;
+} | null> {
+  const context = await resolveLicenseContext(license_key);
+  if (!context.ok) return null;
+
+  return {
+    orgId: context.org_id,
+    planId: context.subscription.plan_id,
+  };
+}
+
+async function insertDeviceResetLog(params: {
+  license_key: string;
+  org_id: string;
+  device_id: string | null;
+  device_fp: string;
+  action: "reset" | "restore";
+  performed_by?: string | null;
+  reason?: string | null;
+}) {
+  const { error } = await supabase
+    .from("license_device_resets")
+    .insert({
+      license_key: params.license_key,
+      org_id: params.org_id,
+      device_id: params.device_id,
+      device_fp: params.device_fp,
+      action: params.action,
+      performed_by: params.performed_by ?? null,
+      reason: params.reason ?? null,
+    });
+
+  if (error) {
+    throw new Error(`device_reset_log_insert_failed:${error.message}`);
+  }
+}
+
+export async function resetDeviceForLicense(params: {
+  license_key: string;
+  device_fp: string;
+  performed_by?: string | null;
+  reason?: string | null;
+}): Promise<DeviceResetResult> {
+  try {
+    const license_key = String(params.license_key || "").trim();
+    const device_fp = String(params.device_fp || "").trim();
+
+    if (!license_key) {
+      return { ok: false, error: "license_key_not_found" };
+    }
+
+    if (!device_fp) {
+      return { ok: false, error: "device_not_found" };
+    }
+
+    const info = await getLicenseOrgAndPlan(license_key);
+    if (!info) {
+      const context = await resolveLicenseContext(license_key);
+      return {
+        ok: false,
+        error: context.ok ? "server_error" : context.error,
+        details: context.ok ? "license_context_unexpected" : context.details ?? null,
+      };
+    }
+
+    const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
+    const resetCount = await countMonthlyDeviceResets(license_key);
+
+    if (resetCount >= resetLimit) {
+      return {
+        ok: false,
+        error: "reset_limit_reached",
+        resetCount,
+        resetLimit,
+      };
+    }
+
+    const { data: device, error: deviceErr } = await supabase
+      .from("license_devices")
+      .select("device_id, device_fp, status")
+      .eq("license_key", license_key)
+      .eq("device_fp", device_fp)
+      .maybeSingle();
+
+    if (deviceErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: deviceErr.message ?? null,
+      };
+    }
+
+    if (!device) {
+      return { ok: false, error: "device_not_found", resetCount, resetLimit };
+    }
+
+    const now = new Date();
+    const blockedUntil = new Date(
+      now.getTime() + RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    const { error: updateErr } = await supabase
+      .from("license_devices")
+      .update({
+        status: "reset_blocked",
+        blocked_until: blockedUntil,
+        reset_at: now.toISOString(),
+        reset_reason: params.reason ?? null,
+        updated_at: now.toISOString(),
+      })
+      .eq("license_key", license_key)
+      .eq("device_fp", device_fp);
+
+    if (updateErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: updateErr.message ?? null,
+      };
+    }
+
+    await insertDeviceResetLog({
+      license_key,
+      org_id: info.orgId,
+      device_id: device.device_id ?? null,
+      device_fp,
+      action: "reset",
+      performed_by: params.performed_by ?? null,
+      reason: params.reason ?? null,
+    });
+
+    return {
+      ok: true,
+      action: "reset",
+      licenseKey: license_key,
+      orgId: info.orgId,
+      deviceId: device.device_id ?? null,
+      deviceFp: device_fp,
+      resetCount: resetCount + 1,
+      resetLimit,
+      blockedUntil,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "server_error",
+      details: err instanceof Error ? err.message : "unknown_server_error",
+    };
+  }
+}
+
+export async function restoreResetBlockedDevice(params: {
+  license_key: string;
+  device_fp: string;
+  performed_by?: string | null;
+  reason?: string | null;
+}): Promise<DeviceResetResult> {
+  try {
+    const license_key = String(params.license_key || "").trim();
+    const device_fp = String(params.device_fp || "").trim();
+
+    if (!license_key) {
+      return { ok: false, error: "license_key_not_found" };
+    }
+
+    if (!device_fp) {
+      return { ok: false, error: "device_not_found" };
+    }
+
+    const info = await getLicenseOrgAndPlan(license_key);
+    if (!info) {
+      const context = await resolveLicenseContext(license_key);
+      return {
+        ok: false,
+        error: context.ok ? "server_error" : context.error,
+        details: context.ok ? "license_context_unexpected" : context.details ?? null,
+      };
+    }
+
+    const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
+    const resetCount = await countMonthlyDeviceResets(license_key);
+
+    if (resetCount >= resetLimit) {
+      return {
+        ok: false,
+        error: "reset_limit_reached",
+        resetCount,
+        resetLimit,
+      };
+    }
+
+    const { data: device, error: deviceErr } = await supabase
+      .from("license_devices")
+      .select("device_id, device_fp, status, blocked_until")
+      .eq("license_key", license_key)
+      .eq("device_fp", device_fp)
+      .maybeSingle();
+
+    if (deviceErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: deviceErr.message ?? null,
+      };
+    }
+
+    if (!device) {
+      return { ok: false, error: "device_not_found", resetCount, resetLimit };
+    }
+
+    if (String(device.status || "") !== "reset_blocked") {
+      return {
+        ok: false,
+        error: "device_not_reset_blocked",
+        resetCount,
+        resetLimit,
+      };
+    }
+
+    const limit = await getDeviceLimitForPlan(info.planId);
+
+    const { count: activeCount, error: activeCountErr } = await supabase
+      .from("license_devices")
+      .select("*", { count: "exact", head: true })
+      .eq("license_key", license_key)
+      .eq("status", "active");
+
+    if (activeCountErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: activeCountErr.message ?? null,
+      };
+    }
+
+    const currentActiveCount = activeCount ?? 0;
+    if (currentActiveCount >= limit) {
+      return {
+        ok: false,
+        error: "device_limit_reached",
+        resetCount,
+        resetLimit,
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+
+    const { error: updateErr } = await supabase
+      .from("license_devices")
+      .update({
+        status: "active",
+        blocked_until: null,
+        updated_at: nowIso,
+        last_seen: nowIso,
+      })
+      .eq("license_key", license_key)
+      .eq("device_fp", device_fp);
+
+    if (updateErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: updateErr.message ?? null,
+      };
+    }
+
+    await insertDeviceResetLog({
+      license_key,
+      org_id: info.orgId,
+      device_id: device.device_id ?? null,
+      device_fp,
+      action: "restore",
+      performed_by: params.performed_by ?? null,
+      reason: params.reason ?? null,
+    });
+
+    return {
+      ok: true,
+      action: "restore",
+      licenseKey: license_key,
+      orgId: info.orgId,
+      deviceId: device.device_id ?? null,
+      deviceFp: device_fp,
+      resetCount: resetCount + 1,
+      resetLimit,
+      blockedUntil: null,
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "server_error",
+      details: err instanceof Error ? err.message : "unknown_server_error",
+    };
+  }
+}
+
+export async function resetAllDevicesForLicense(params: {
+  license_key: string;
+  performed_by?: string | null;
+  reason?: string | null;
+}): Promise<
+  | {
+      ok: true;
+      action: "reset";
+      licenseKey: string;
+      orgId: string;
+      affected: number;
+      resetCount: number;
+      resetLimit: number;
+      blockedUntil: string | null;
+    }
+  | {
+      ok: false;
+      error:
+        | "license_key_not_found"
+        | "license_key_inactive"
+        | "no_subscription"
+        | "inactive_license"
+        | "expired"
+        | "reset_limit_reached"
+        | "server_error";
+      details?: string | null;
+      resetCount?: number;
+      resetLimit?: number;
+    }
+> {
+  try {
+    const license_key = String(params.license_key || "").trim();
+
+    const info = await getLicenseOrgAndPlan(license_key);
+    if (!info) {
+      const context = await resolveLicenseContext(license_key);
+      return {
+        ok: false,
+        error: context.ok ? "server_error" : context.error,
+        details: context.ok ? "license_context_unexpected" : context.details ?? null,
+      };
+    }
+
+    const { data: devices, error: devicesErr } = await supabase
+      .from("license_devices")
+      .select("device_id, device_fp, status")
+      .eq("license_key", license_key)
+      .in("status", ["active", "passive"]);
+
+    if (devicesErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: devicesErr.message ?? null,
+      };
+    }
+
+    const rows = devices ?? [];
+    if (!rows.length) {
+      const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
+      const resetCount = await countMonthlyDeviceResets(license_key);
+      return {
+        ok: true,
+        action: "reset",
+        licenseKey: license_key,
+        orgId: info.orgId,
+        affected: 0,
+        resetCount,
+        resetLimit,
+        blockedUntil: null,
+      };
+    }
+
+    const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
+    const resetCount = await countMonthlyDeviceResets(license_key);
+
+    if (resetCount + rows.length > resetLimit) {
+      return {
+        ok: false,
+        error: "reset_limit_reached",
+        resetCount,
+        resetLimit,
+      };
+    }
+
+    const now = new Date();
+    const blockedUntil = new Date(
+      now.getTime() + RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    const fps = rows.map((r) => String(r.device_fp || "")).filter(Boolean);
+
+    const { error: updateErr } = await supabase
+      .from("license_devices")
+      .update({
+        status: "reset_blocked",
+        blocked_until: blockedUntil,
+        reset_at: now.toISOString(),
+        reset_reason: params.reason ?? null,
+        updated_at: now.toISOString(),
+      })
+      .eq("license_key", license_key)
+      .in("device_fp", fps);
+
+    if (updateErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: updateErr.message ?? null,
+      };
+    }
+
+    const logRows = rows.map((r) => ({
+      license_key,
+      org_id: info.orgId,
+      device_id: r.device_id ?? null,
+      device_fp: r.device_fp ?? null,
+      action: "reset" as const,
+      performed_by: params.performed_by ?? null,
+      reason: params.reason ?? null,
+    }));
+
+    const { error: logErr } = await supabase
+      .from("license_device_resets")
+      .insert(logRows);
+
+    if (logErr) {
+      return {
+        ok: false,
+        error: "server_error",
+        details: logErr.message ?? null,
+      };
+    }
+
+    return {
+      ok: true,
+      action: "reset",
+      licenseKey: license_key,
+      orgId: info.orgId,
+      affected: rows.length,
+      resetCount: resetCount + rows.length,
+      resetLimit,
+      blockedUntil,
     };
   } catch (err) {
     return {
