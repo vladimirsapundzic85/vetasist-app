@@ -561,4 +561,3 @@ function FeatureCard({
     </div>
   )
 }
-ispravi mi oba fajla da ne zabrljam više i nemoj da preskočiš ništa, neću više ovo da krpim na slepo, daj mi gotove fajlove kompletne za copy/paste preko postojećih i reci tačno koji fajl preko kog fajla ide
