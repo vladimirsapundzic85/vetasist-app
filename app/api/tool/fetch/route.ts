@@ -138,6 +138,9 @@ export async function POST(req: Request) {
           details: deviceResult.details ?? null,
           limit: deviceResult.limit ?? null,
           device_count: deviceResult.deviceCount ?? null,
+          blocked_until: deviceResult.blockedUntil ?? null,
+          reset_limit: deviceResult.resetLimit ?? null,
+          reset_count: deviceResult.resetCount ?? null,
         },
         status
       );
