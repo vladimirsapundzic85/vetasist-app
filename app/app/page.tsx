@@ -1,307 +1,231 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-type Org = { id: string; name: string }
-type Sub = { org_id: string; plan_id: string; status: string; valid_until: string | null }
-type Plan = { id: string; name: string; price_eur: number; seats: number; max_sessions_per_user: number }
+type Org = {
+  id: string
+  name: string
+}
 
-export default function Home() {
+type Sub = {
+  plan_id: string
+  status: string
+  valid_until: string | null
+}
+
+type License = {
+  license_key: string
+  is_active: boolean
+  plan: string
+}
+
+export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
 
-  const [orgs, setOrgs] = useState<Org[]>([])
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null)
+  const [org, setOrg] = useState<Org | null>(null)
+  const [subscription, setSubscription] = useState<Sub | null>(null)
+  const [license, setLicense] = useState<License | null>(null)
 
-  const [plans, setPlans] = useState<Plan[]>([])
-  const [sub, setSub] = useState<Sub | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const [orgName, setOrgName] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [err, setErr] = useState<string | null>(null)
-
-  const isAuthed = useMemo(() => !!userId, [userId])
-
-  async function refreshSession() {
+  async function loadSession() {
     const { data, error } = await supabase.auth.getSession()
-    if (error) throw error
-
-    const u = data.session?.user ?? null
-    setEmail(u?.email ?? null)
-    setUserId(u?.id ?? null)
-  }
-
-  async function loadPlans() {
-    const { data, error } = await supabase
-      .from('plans')
-      .select('*')
-      .order('price_eur', { ascending: true })
 
     if (error) throw error
-    setPlans((data as Plan[]) ?? [])
+
+    const user = data.session?.user ?? null
+
+    setEmail(user?.email ?? null)
+    setUserId(user?.id ?? null)
+
+    return user?.id ?? null
   }
 
-  async function loadOrgs(currentUserId: string) {
+  async function loadOrg(userId: string) {
     const { data, error } = await supabase
       .from('org_members')
-      .select('org_id, organizations ( id, name )')
-      .eq('user_id', currentUserId)
-      .order('created_at', { ascending: false })
+      .select('org_id, organizations(id,name)')
+      .eq('user_id', userId)
+      .limit(1)
+      .single()
 
     if (error) throw error
 
-    const list: Org[] =
-      (data ?? [])
-        .map((row: any) => row.organizations)
-        .filter(Boolean)
-        .map((o: any) => ({ id: o.id as string, name: o.name as string })) ?? []
+    const org = data.organizations as Org
 
-    setOrgs(list)
+    setOrg(org)
 
-    if (!activeOrgId && list.length) setActiveOrgId(list[0].id)
-
-    if (activeOrgId && list.length && !list.some((o) => o.id === activeOrgId)) {
-      setActiveOrgId(list[0].id)
-    }
-
-    if (activeOrgId && list.length === 0) {
-      setActiveOrgId(null)
-    }
+    return org.id
   }
 
-  async function loadSub(orgId: string) {
+  async function loadSubscription(orgId: string) {
     const { data, error } = await supabase
       .from('subscriptions')
-      .select('*')
+      .select('plan_id,status,valid_until')
       .eq('org_id', orgId)
       .maybeSingle()
 
     if (error) throw error
-    setSub((data as Sub) ?? null)
+
+    setSubscription(data)
   }
 
-  useEffect(() => {
-    ;(async () => {
-      try {
-        setErr(null)
-        await refreshSession()
-        await loadPlans()
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
+  async function loadLicense(orgId: string) {
+    const { data, error } = await supabase
+      .from('license_keys')
+      .select('license_key,is_active,plan')
+      .eq('org_id', orgId)
+      .maybeSingle()
 
-    const { data: subAuth } = supabase.auth.onAuthStateChange((_event, session) => {
-      setEmail(session?.user?.email ?? null)
-      setUserId(session?.user?.id ?? null)
-    })
+    if (error) throw error
 
-    return () => {
-      subAuth.subscription.unsubscribe()
-    }
-  }, [])
+    setLicense(data)
+  }
 
-  useEffect(() => {
-    if (!userId) {
-      setOrgs([])
-      setActiveOrgId(null)
-      setSub(null)
-      return
-    }
-
-    ;(async () => {
-      try {
-        setErr(null)
-        await loadOrgs(userId)
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
-  }, [userId])
-
-  useEffect(() => {
-    if (!activeOrgId) {
-      setSub(null)
-      return
-    }
-
-    ;(async () => {
-      try {
-        setErr(null)
-        await loadSub(activeOrgId)
-      } catch (e: any) {
-        setErr(e?.message ?? String(e))
-      }
-    })()
-  }, [activeOrgId])
-
-  async function createOrg() {
-    const name = orgName.trim()
-    if (!name) return
-
-    setLoading(true)
-    setErr(null)
-    setMsg(null)
-
+  async function init() {
     try {
-      const { data: me, error: meErr } = await supabase.auth.getUser()
-      if (meErr) throw meErr
+      setLoading(true)
+      setError(null)
 
-      const uid = me.user?.id
-      if (!uid) throw new Error('Nisi ulogovan.')
+      const uid = await loadSession()
 
-      const { data: org, error: orgErr } = await supabase
-        .from('organizations')
-        .insert({ name })
-        .select('id,name')
-        .single()
+      if (!uid) {
+        setLoading(false)
+        return
+      }
 
-      if (orgErr) throw orgErr
+      const orgId = await loadOrg(uid)
 
-      const orgId = (org as Org).id
+      await loadSubscription(orgId)
 
-      const { error: memErr } = await supabase.from('org_members').insert({
-        org_id: orgId,
-        user_id: uid,
-        role: 'owner'
-      })
-
-      if (memErr) throw memErr
-
-      const { error: subErr } = await supabase.from('subscriptions').insert({
-        org_id: orgId,
-        plan_id: 'basic',
-        status: 'inactive',
-        valid_until: null
-      })
-
-      if (subErr) throw subErr
-
-      setOrgName('')
-      setMsg(`Organizacija kreirana: ${(org as Org).name}`)
-
-      await loadOrgs(uid)
-      setActiveOrgId(orgId)
-      await loadSub(orgId)
+      await loadLicense(orgId)
     } catch (e: any) {
-      setErr(e?.message ?? String(e))
+      setError(e?.message ?? 'Unknown error')
     } finally {
       setLoading(false)
     }
   }
 
+  useEffect(() => {
+    init()
+
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      init()
+    })
+
+    return () => {
+      data.subscription.unsubscribe()
+    }
+  }, [])
+
   async function logout() {
-    setLoading(true)
-    setErr(null)
-    setMsg(null)
+    await supabase.auth.signOut()
+  }
 
-    const { error } = await supabase.auth.signOut()
-
-    setLoading(false)
-    if (error) setErr(error.message)
+  if (loading) {
+    return (
+      <main style={{ padding: 40 }}>
+        <h2>Loading...</h2>
+      </main>
+    )
   }
 
   return (
-    <main style={{ padding: 20, maxWidth: 900 }}>
-      <h1>VetAsist — Licenca (MVP)</h1>
+    <main style={{ padding: 40, maxWidth: 900 }}>
 
-      <div style={{ margin: '12px 0' }}>
-        {email ? (
-          <>
-            <span>
-              Ulogovan: <b>{email}</b>
-            </span>
-            <button onClick={logout} disabled={loading} style={{ marginLeft: 10 }}>
-              Logout
-            </button>
-          </>
-        ) : (
-          <span>
-            Nisi ulogovan. Idi na <a href="/auth">/auth</a>
-          </span>
-        )}
-      </div>
+      <h1>VetAssist — Owner Panel</h1>
 
-      {msg && <p style={{ color: 'green' }}>{msg}</p>}
-      {err && <p style={{ color: 'crimson' }}>Greška: {err}</p>}
-
-      <hr />
-
-      <h2>Kreiraj organizaciju</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          value={orgName}
-          onChange={(e) => setOrgName(e.target.value)}
-          placeholder="Naziv organizacije…"
-          style={{ flex: 1, padding: 8 }}
-          disabled={!isAuthed || loading}
-        />
-        <button onClick={createOrg} disabled={!isAuthed || loading}>
-          {loading ? 'Kreiram…' : 'Kreiraj'}
-        </button>
-      </div>
-
-      <hr />
-
-      <h2>Moje organizacije</h2>
-      {orgs.length === 0 ? (
-        <p>Nema organizacija još. Kreiraj prvu.</p>
-      ) : (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          {orgs.map((o) => (
-            <button
-              key={o.id}
-              onClick={() => setActiveOrgId(o.id)}
-              style={{
-                padding: '8px 10px',
-                border: activeOrgId === o.id ? '2px solid black' : '1px solid #ccc',
-                background: activeOrgId === o.id ? '#eee' : 'white',
-                cursor: 'pointer'
-              }}
-            >
-              {o.name}
-            </button>
-          ))}
+      {email && (
+        <div style={{ marginBottom: 20 }}>
+          Ulogovan: <b>{email}</b>
+          <button onClick={logout} style={{ marginLeft: 10 }}>
+            Logout
+          </button>
         </div>
+      )}
+
+      {error && (
+        <p style={{ color: 'red' }}>
+          Greška: {error}
+        </p>
       )}
 
       <hr />
 
-      <h2>Planovi</h2>
+      <h2>Organizacija</h2>
+
+      {org ? (
+        <p>
+          <b>{org.name}</b>
+        </p>
+      ) : (
+        <p>Nema organizacije povezane sa ovim nalogom.</p>
+      )}
+
+      <hr />
+
+      <h2>Licenca</h2>
+
+      {license ? (
+        <div>
+
+          <p>
+            <b>License key:</b><br/>
+            <code>{license.license_key}</code>
+          </p>
+
+          <p>
+            <b>Plan:</b> {license.plan}
+          </p>
+
+          <p>
+            <b>Aktivna:</b> {license.is_active ? 'DA' : 'NE'}
+          </p>
+
+        </div>
+      ) : (
+        <p>Nema licence za ovu organizaciju.</p>
+      )}
+
+      <hr />
+
+      <h2>Pretplata</h2>
+
+      {subscription ? (
+        <div>
+
+          <p>
+            <b>Status:</b> {subscription.status}
+          </p>
+
+          <p>
+            <b>Plan:</b> {subscription.plan_id}
+          </p>
+
+          <p>
+            <b>Valid until:</b> {subscription.valid_until ?? 'nema'}
+          </p>
+
+        </div>
+      ) : (
+        <p>Nema subscription zapisa.</p>
+      )}
+
+      <hr />
+
+      <h2>Sledeći koraci</h2>
+
       <ul>
-        {plans.map((p) => (
-          <li key={p.id}>
-            <b>{p.name}</b> — €{p.price_eur}/mes • seats: {p.seats} • sessions/user:{' '}
-            {p.max_sessions_per_user}
-          </li>
-        ))}
+        <li>upravljanje uređajima</li>
+        <li>reset uređaja</li>
+        <li>istorija resetova</li>
+        <li>promena plana</li>
+        <li>uputstvo za instalaciju ekstenzije</li>
       </ul>
 
-      <h2>Licenca (za izabranu organizaciju)</h2>
-      {!activeOrgId ? (
-        <p>Izaberi organizaciju.</p>
-      ) : !sub ? (
-        <p>Nema subscription reda (ovo ne bi trebalo da se desi ako je org kreiran iz aplikacije).</p>
-      ) : (
-        <div>
-          <p>
-            <b>Status:</b> {sub.status}
-          </p>
-          <p>
-            <b>Plan:</b> {sub.plan_id}
-          </p>
-          <p>
-            <b>Valid until:</b> {sub.valid_until ?? 'n/a'}
-          </p>
-        </div>
-      )}
-
-      <p style={{ opacity: 0.8 }}>
-        Sledeće: “Activate license” (manual admin) + session limit + endpoint za skripte da
-        proveri status licence.
-      </p>
     </main>
   )
 }
