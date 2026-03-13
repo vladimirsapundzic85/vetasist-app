@@ -97,8 +97,7 @@ function resolvePlanInfo(variantId: number, productNameRaw: string): PlanInfo | 
 function mapProviderStatusToLocalStatus(providerStatus: string): "active" | "inactive" {
   const s = String(providerStatus || "").trim().toLowerCase();
 
-  // Sve osim expired tretiramo kao pristup aktivan.
-  // Pravi provider status ide u provider_status kolonu.
+  // Lokalni pristup ostaje active dok subscription nije expired.
   if (s === "expired") return "inactive";
   return "active";
 }
@@ -197,7 +196,6 @@ async function findOrCreateOrganization(params: {
 
   const existing = await findCanonicalOrganizationByEmail(email);
   if (existing) {
-    // Po želji osveži ime ako je prazno ili loše.
     if (!safeString(existing.name) && ownerName) {
       const { error } = await supabase
         .from("organizations")
@@ -297,12 +295,15 @@ async function upsertSubscription(params: {
   };
 
   if (existing) {
-    const { data, error } = await supabase
-      .from("subscriptions")
-      .update(payload)
-      .eq("id", existing.id)
-      .select("*")
-      .single();
+    let query = supabase.from("subscriptions").update(payload);
+
+    if (safeString(existing.external_subscription_id)) {
+      query = query.eq("external_subscription_id", safeString(existing.external_subscription_id));
+    } else {
+      query = query.eq("org_id", params.orgId);
+    }
+
+    const { data, error } = await query.select("*").single();
 
     if (error || !data) {
       throw new Error(`subscription_update_failed:${error?.message || "unknown"}`);
@@ -462,7 +463,7 @@ export async function POST(req: NextRequest) {
       endsAt: payload.endsAt,
     });
 
-    const subscription = await upsertSubscription({
+    await upsertSubscription({
       orgId: org.id,
       externalSubscriptionId: payload.externalSubscriptionId,
       externalCustomerId: payload.externalCustomerId,
@@ -483,7 +484,6 @@ export async function POST(req: NextRequest) {
         planId: planInfo.plan,
       });
     } else {
-      // expired → deaktiviraj aktivne licence za taj org
       const { error: deactivateErr } = await supabase
         .from("license_keys")
         .update({ is_active: false })
@@ -500,7 +500,6 @@ export async function POST(req: NextRequest) {
       event: payload.event,
       org_id: org.id,
       owner_email: payload.email,
-      subscription_id: subscription.id,
       external_subscription_id: payload.externalSubscriptionId,
       plan: planInfo.plan,
       provider_status: payload.providerStatus,
