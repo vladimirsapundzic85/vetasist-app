@@ -2,36 +2,36 @@ export default function HomePage() {
   return (
     <main
       style={{
-        fontFamily: "Arial, sans-serif",
-        color: "#1f2937",
-        background: "#f8fafc",
+        fontFamily: 'Arial, sans-serif',
+        color: '#1f2937',
+        background: '#f8fafc',
       }}
     >
       <section
         style={{
           background:
-            "linear-gradient(135deg, #0f172a 0%, #1e3a8a 45%, #0ea5e9 100%)",
-          color: "white",
-          padding: "72px 20px 56px",
+            'linear-gradient(135deg, #0f172a 0%, #1e3a8a 45%, #0ea5e9 100%)',
+          color: 'white',
+          padding: '72px 20px 56px',
         }}
       >
         <div
           style={{
             maxWidth: 1180,
-            margin: "0 auto",
-            display: "grid",
-            gridTemplateColumns: "1.2fr 0.8fr",
+            margin: '0 auto',
+            display: 'grid',
+            gridTemplateColumns: '1.2fr 0.8fr',
             gap: 32,
-            alignItems: "center",
+            alignItems: 'center',
           }}
         >
           <div>
             <div
               style={{
-                display: "inline-block",
-                padding: "8px 12px",
+                display: 'inline-block',
+                padding: '8px 12px',
                 borderRadius: 999,
-                background: "rgba(255,255,255,0.12)",
+                background: 'rgba(255,255,255,0.12)',
                 fontSize: 13,
                 fontWeight: 700,
                 marginBottom: 18,
@@ -44,7 +44,7 @@ export default function HomePage() {
               style={{
                 fontSize: 52,
                 lineHeight: 1.05,
-                margin: "0 0 18px",
+                margin: '0 0 18px',
                 fontWeight: 800,
                 letterSpacing: -1,
               }}
@@ -56,9 +56,9 @@ export default function HomePage() {
               style={{
                 fontSize: 20,
                 lineHeight: 1.6,
-                margin: "0 0 26px",
+                margin: '0 0 26px',
                 maxWidth: 760,
-                color: "rgba(255,255,255,0.92)",
+                color: 'rgba(255,255,255,0.92)',
               }}
             >
               VetAssist je skup alata za veterinarske službe i odgajivačke
@@ -68,23 +68,23 @@ export default function HomePage() {
 
             <div
               style={{
-                display: "flex",
+                display: 'flex',
                 gap: 14,
-                flexWrap: "wrap",
+                flexWrap: 'wrap',
                 marginBottom: 18,
               }}
             >
               <a
                 href="/app"
                 style={{
-                  display: "inline-block",
-                  padding: "14px 20px",
+                  display: 'inline-block',
+                  padding: '14px 20px',
                   borderRadius: 10,
-                  textDecoration: "none",
-                  background: "white",
-                  color: "#111827",
+                  textDecoration: 'none',
+                  background: 'white',
+                  color: '#111827',
                   fontWeight: 700,
-                  border: "1px solid white",
+                  border: '1px solid white',
                 }}
               >
                 Otvori aplikaciju
@@ -93,14 +93,14 @@ export default function HomePage() {
               <a
                 href="#pricing"
                 style={{
-                  display: "inline-block",
-                  padding: "14px 20px",
+                  display: 'inline-block',
+                  padding: '14px 20px',
                   borderRadius: 10,
-                  textDecoration: "none",
-                  background: "transparent",
-                  color: "white",
+                  textDecoration: 'none',
+                  background: 'transparent',
+                  color: 'white',
                   fontWeight: 700,
-                  border: "1px solid rgba(255,255,255,0.45)",
+                  border: '1px solid rgba(255,255,255,0.45)',
                 }}
               >
                 Pogledaj cenu
@@ -109,11 +109,11 @@ export default function HomePage() {
 
             <div
               style={{
-                display: "flex",
+                display: 'flex',
                 gap: 18,
-                flexWrap: "wrap",
+                flexWrap: 'wrap',
                 fontSize: 15,
-                color: "rgba(255,255,255,0.9)",
+                color: 'rgba(255,255,255,0.9)',
               }}
             >
               <span>✔ Brža obrada zahteva</span>
@@ -124,12 +124,12 @@ export default function HomePage() {
 
           <div
             style={{
-              background: "rgba(255,255,255,0.1)",
-              border: "1px solid rgba(255,255,255,0.18)",
+              background: 'rgba(255,255,255,0.1)',
+              border: '1px solid rgba(255,255,255,0.18)',
               borderRadius: 18,
               padding: 24,
-              boxShadow: "0 16px 40px rgba(0,0,0,0.18)",
-              backdropFilter: "blur(8px)",
+              boxShadow: '0 16px 40px rgba(0,0,0,0.18)',
+              backdropFilter: 'blur(8px)',
             }}
           >
             <div
@@ -162,10 +162,10 @@ export default function HomePage() {
               style={{
                 marginTop: 20,
                 paddingTop: 18,
-                borderTop: "1px solid rgba(255,255,255,0.15)",
+                borderTop: '1px solid rgba(255,255,255,0.15)',
                 fontSize: 15,
                 lineHeight: 1.7,
-                color: "rgba(255,255,255,0.92)",
+                color: 'rgba(255,255,255,0.92)',
               }}
             >
               Rezultat: manje kliktanja, manje prepisivanja, više gotovih
@@ -175,14 +175,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section style={{ padding: "56px 20px", background: "white" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      <section style={{ padding: '56px 20px', background: 'white' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           <h2
             style={{
               fontSize: 34,
-              margin: "0 0 12px",
+              margin: '0 0 12px',
               fontWeight: 800,
-              textAlign: "center",
+              textAlign: 'center',
             }}
           >
             Za koga je VetAssist
@@ -190,10 +190,10 @@ export default function HomePage() {
 
           <p
             style={{
-              textAlign: "center",
-              color: "#4b5563",
+              textAlign: 'center',
+              color: '#4b5563',
               fontSize: 18,
-              margin: "0 auto 34px",
+              margin: '0 auto 34px',
               maxWidth: 760,
               lineHeight: 1.6,
             }}
@@ -204,8 +204,8 @@ export default function HomePage() {
 
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
               gap: 20,
             }}
           >
@@ -225,14 +225,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section style={{ padding: "56px 20px", background: "#eef2ff" }}>
-        <div style={{ maxWidth: 1180, margin: "0 auto" }}>
+      <section style={{ padding: '56px 20px', background: '#eef2ff' }}>
+        <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           <h2
             style={{
               fontSize: 34,
-              margin: "0 0 32px",
+              margin: '0 0 32px',
               fontWeight: 800,
-              textAlign: "center",
+              textAlign: 'center',
             }}
           >
             Šta dobijaš
@@ -240,8 +240,8 @@ export default function HomePage() {
 
           <div
             style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
               gap: 20,
             }}
           >
@@ -265,12 +265,12 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section id="pricing" style={{ padding: "64px 20px", background: "white" }}>
-        <div style={{ maxWidth: 980, margin: "0 auto", textAlign: "center" }}>
+      <section id="pricing" style={{ padding: '64px 20px', background: 'white' }}>
+        <div style={{ maxWidth: 980, margin: '0 auto', textAlign: 'center' }}>
           <h2
             style={{
               fontSize: 34,
-              margin: "0 0 12px",
+              margin: '0 0 12px',
               fontWeight: 800,
             }}
           >
@@ -279,9 +279,9 @@ export default function HomePage() {
 
           <p
             style={{
-              color: "#4b5563",
+              color: '#4b5563',
               fontSize: 18,
-              margin: "0 auto 30px",
+              margin: '0 auto 30px',
               maxWidth: 720,
               lineHeight: 1.6,
             }}
@@ -293,21 +293,21 @@ export default function HomePage() {
           <div
             style={{
               maxWidth: 520,
-              margin: "0 auto",
-              border: "1px solid #dbeafe",
+              margin: '0 auto',
+              border: '1px solid #dbeafe',
               borderRadius: 18,
               padding: 30,
-              boxShadow: "0 18px 45px rgba(15, 23, 42, 0.08)",
-              background: "linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)",
+              boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
+              background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
             }}
           >
             <div
               style={{
-                display: "inline-block",
-                padding: "6px 10px",
+                display: 'inline-block',
+                padding: '6px 10px',
                 borderRadius: 999,
-                background: "#dbeafe",
-                color: "#1d4ed8",
+                background: '#dbeafe',
+                color: '#1d4ed8',
                 fontWeight: 700,
                 fontSize: 13,
                 marginBottom: 14,
@@ -329,17 +329,17 @@ export default function HomePage() {
                 style={{
                   fontSize: 18,
                   fontWeight: 600,
-                  color: "#6b7280",
+                  color: '#6b7280',
                 }}
               >
-                {" "}
+                {' '}
                 / mesečno
               </span>
             </div>
 
             <div
               style={{
-                color: "#4b5563",
+                color: '#4b5563',
                 fontSize: 16,
                 marginBottom: 22,
               }}
@@ -349,10 +349,10 @@ export default function HomePage() {
 
             <ul
               style={{
-                listStyle: "none",
+                listStyle: 'none',
                 padding: 0,
-                margin: "0 0 24px",
-                textAlign: "left",
+                margin: '0 0 24px',
+                textAlign: 'left',
                 lineHeight: 1.9,
                 fontSize: 16,
               }}
@@ -365,23 +365,23 @@ export default function HomePage() {
 
             <div
               style={{
-                display: "flex",
+                display: 'flex',
                 gap: 12,
-                justifyContent: "center",
-                flexWrap: "wrap",
+                justifyContent: 'center',
+                flexWrap: 'wrap',
               }}
             >
               <a
                 href="/app"
                 style={{
-                  display: "inline-block",
-                  padding: "14px 20px",
+                  display: 'inline-block',
+                  padding: '14px 20px',
                   borderRadius: 10,
-                  textDecoration: "none",
-                  background: "#111827",
-                  color: "white",
+                  textDecoration: 'none',
+                  background: '#111827',
+                  color: 'white',
                   fontWeight: 700,
-                  border: "1px solid #111827",
+                  border: '1px solid #111827',
                 }}
               >
                 Otvori aplikaciju
@@ -390,14 +390,14 @@ export default function HomePage() {
               <a
                 href="mailto:vladimirsapundzic@gmail.com"
                 style={{
-                  display: "inline-block",
-                  padding: "14px 20px",
+                  display: 'inline-block',
+                  padding: '14px 20px',
                   borderRadius: 10,
-                  textDecoration: "none",
-                  background: "white",
-                  color: "#111827",
+                  textDecoration: 'none',
+                  background: 'white',
+                  color: '#111827',
                   fontWeight: 700,
-                  border: "1px solid #d1d5db",
+                  border: '1px solid #d1d5db',
                 }}
               >
                 Zatraži demo
@@ -407,18 +407,18 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section style={{ padding: "64px 20px", background: "#0f172a", color: "white" }}>
+      <section style={{ padding: '64px 20px', background: '#0f172a', color: 'white' }}>
         <div
           style={{
             maxWidth: 980,
-            margin: "0 auto",
-            textAlign: "center",
+            margin: '0 auto',
+            textAlign: 'center',
           }}
         >
           <h2
             style={{
               fontSize: 34,
-              margin: "0 0 14px",
+              margin: '0 0 14px',
               fontWeight: 800,
             }}
           >
@@ -428,10 +428,10 @@ export default function HomePage() {
           <p
             style={{
               maxWidth: 760,
-              margin: "0 auto 24px",
+              margin: '0 auto 24px',
               fontSize: 18,
               lineHeight: 1.7,
-              color: "rgba(255,255,255,0.85)",
+              color: 'rgba(255,255,255,0.85)',
             }}
           >
             VetAssist je napravljen da skine najdosadniji deo posla sa ljudi koji
@@ -440,23 +440,23 @@ export default function HomePage() {
 
           <div
             style={{
-              display: "flex",
+              display: 'flex',
               gap: 14,
-              justifyContent: "center",
-              flexWrap: "wrap",
+              justifyContent: 'center',
+              flexWrap: 'wrap',
             }}
           >
             <a
               href="/app"
               style={{
-                display: "inline-block",
-                padding: "14px 20px",
+                display: 'inline-block',
+                padding: '14px 20px',
                 borderRadius: 10,
-                textDecoration: "none",
-                background: "white",
-                color: "#111827",
+                textDecoration: 'none',
+                background: 'white',
+                color: '#111827',
                 fontWeight: 700,
-                border: "1px solid white",
+                border: '1px solid white',
               }}
             >
               Idi na aplikaciju
@@ -465,14 +465,14 @@ export default function HomePage() {
             <a
               href="mailto:vladimirsapundzic@gmail.com"
               style={{
-                display: "inline-block",
-                padding: "14px 20px",
+                display: 'inline-block',
+                padding: '14px 20px',
                 borderRadius: 10,
-                textDecoration: "none",
-                background: "transparent",
-                color: "white",
+                textDecoration: 'none',
+                background: 'transparent',
+                color: 'white',
                 fontWeight: 700,
-                border: "1px solid rgba(255,255,255,0.35)",
+                border: '1px solid rgba(255,255,255,0.35)',
               }}
             >
               Kontakt
@@ -481,28 +481,28 @@ export default function HomePage() {
         </div>
       </section>
     </main>
-  );
+  )
 }
 
 function InfoCard({
   title,
   text,
 }: {
-  title: string;
-  text: string;
+  title: string
+  text: string
 }) {
   return (
     <div
       style={{
-        background: "#f8fafc",
-        border: "1px solid #e5e7eb",
+        background: '#f8fafc',
+        border: '1px solid #e5e7eb',
         borderRadius: 16,
         padding: 22,
       }}
     >
       <h3
         style={{
-          margin: "0 0 10px",
+          margin: '0 0 10px',
           fontSize: 22,
           fontWeight: 800,
         }}
@@ -512,7 +512,7 @@ function InfoCard({
       <p
         style={{
           margin: 0,
-          color: "#4b5563",
+          color: '#4b5563',
           lineHeight: 1.7,
           fontSize: 16,
         }}
@@ -520,28 +520,28 @@ function InfoCard({
         {text}
       </p>
     </div>
-  );
+  )
 }
 
 function FeatureCard({
   title,
   text,
 }: {
-  title: string;
-  text: string;
+  title: string
+  text: string
 }) {
   return (
     <div
       style={{
-        background: "white",
-        border: "1px solid #dbeafe",
+        background: 'white',
+        border: '1px solid #dbeafe',
         borderRadius: 16,
         padding: 22,
       }}
     >
       <h3
         style={{
-          margin: "0 0 10px",
+          margin: '0 0 10px',
           fontSize: 22,
           fontWeight: 800,
         }}
@@ -551,7 +551,7 @@ function FeatureCard({
       <p
         style={{
           margin: 0,
-          color: "#4b5563",
+          color: '#4b5563',
           lineHeight: 1.7,
           fontSize: 16,
         }}
@@ -559,5 +559,6 @@ function FeatureCard({
         {text}
       </p>
     </div>
-  );
+  )
 }
+ispravi mi oba fajla da ne zabrljam više i nemoj da preskočiš ništa, neću više ovo da krpim na slepo, daj mi gotove fajlove kompletne za copy/paste preko postojećih i reci tačno koji fajl preko kog fajla ide
