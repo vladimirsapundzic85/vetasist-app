@@ -11,6 +11,10 @@ const supabase = createClient(
 );
 
 const WEBHOOK_SECRET = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET!;
+const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
+const SEND_LICENSE_EMAILS_IN_TEST_MODE =
+  String(process.env.SEND_LICENSE_EMAILS_IN_TEST_MODE || "false").toLowerCase() === "true";
 
 type PlanId = "basic" | "team" | "pro" | "exclusive";
 
@@ -97,7 +101,6 @@ function resolvePlanInfo(variantId: number, productNameRaw: string): PlanInfo | 
 function mapProviderStatusToLocalStatus(providerStatus: string): "active" | "inactive" {
   const s = String(providerStatus || "").trim().toLowerCase();
 
-  // Lokalni pristup ostaje active dok subscription nije expired.
   if (s === "expired") return "inactive";
   return "active";
 }
@@ -120,6 +123,13 @@ function resolveValidUntil(params: {
 function isCancelAtPeriodEnd(providerStatus: string, endsAt: string | null): boolean {
   const s = String(providerStatus || "").trim().toLowerCase();
   return s === "cancelled" && !!safeString(endsAt);
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "n/a";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("sr-RS");
 }
 
 function extractSubscriptionPayload(body: any) {
@@ -150,6 +160,7 @@ function extractSubscriptionPayload(body: any) {
 
   const renewsAt = safeString(attrs?.renews_at) || null;
   const endsAt = safeString(attrs?.ends_at) || null;
+  const testMode = !!attrs?.test_mode || !!body?.meta?.test_mode;
 
   return {
     event: safeString(body?.meta?.event_name),
@@ -162,6 +173,7 @@ function extractSubscriptionPayload(body: any) {
     providerStatus,
     renewsAt,
     endsAt,
+    testMode,
   };
 }
 
@@ -406,6 +418,131 @@ async function ensureSingleActiveLicense(params: {
   return licenseKey;
 }
 
+async function sendLicenseEmail(params: {
+  to: string;
+  ownerName: string;
+  plan: string;
+  deviceLimit: number;
+  validUntil: string | null;
+  licenseKey: string;
+  testMode: boolean;
+}) {
+  if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
+    console.warn("VetAssist: email skipped because RESEND env is missing");
+    return { ok: false, skipped: true, reason: "missing_resend_env" as const };
+  }
+
+  if (params.testMode && !SEND_LICENSE_EMAILS_IN_TEST_MODE) {
+    console.warn("VetAssist: email skipped in test mode");
+    return { ok: false, skipped: true, reason: "test_mode_disabled" as const };
+  }
+
+  const ownerName = safeString(params.ownerName) || "korisniče";
+  const validUntil = formatDate(params.validUntil);
+
+  const subject = `VetAssist licenca — ${params.plan}`;
+  const text = [
+    `Poštovani ${ownerName},`,
+    ``,
+    `Vaša VetAssist pretplata je aktivna.`,
+    `Plan: ${params.plan}`,
+    `Dozvoljeno uređaja: ${params.deviceLimit}`,
+    `Važi do: ${validUntil}`,
+    ``,
+    `Vaš license key:`,
+    `${params.licenseKey}`,
+    ``,
+    `Dalji koraci:`,
+    `1. Instalirajte VetAssist ekstenziju.`,
+    `2. Otvorite AIRS.`,
+    `3. Unesite license key i sačuvajte licencu.`,
+    ``,
+    `VetAssist`,
+  ].join("\n");
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#222;">
+      <h1 style="font-size:24px;">VetAssist licenca</h1>
+      <p>Poštovani ${escapeHtml(ownerName)},</p>
+      <p>Vaša VetAssist pretplata je aktivna.</p>
+
+      <table style="border-collapse:collapse;margin:16px 0;">
+        <tr>
+          <td style="padding:6px 12px 6px 0;"><strong>Plan:</strong></td>
+          <td style="padding:6px 0;">${escapeHtml(params.plan)}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 6px 0;"><strong>Dozvoljeno uređaja:</strong></td>
+          <td style="padding:6px 0;">${params.deviceLimit}</td>
+        </tr>
+        <tr>
+          <td style="padding:6px 12px 6px 0;"><strong>Važi do:</strong></td>
+          <td style="padding:6px 0;">${escapeHtml(validUntil)}</td>
+        </tr>
+      </table>
+
+      <div style="margin:20px 0;padding:16px;background:#f6f6f6;border:1px solid #e5e5e5;border-radius:10px;">
+        <div style="margin-bottom:8px;font-weight:700;">Vaš license key</div>
+        <div style="font-size:24px;font-weight:700;letter-spacing:1px;word-break:break-word;">
+          ${escapeHtml(params.licenseKey)}
+        </div>
+      </div>
+
+      <h2 style="font-size:18px;">Dalji koraci</h2>
+      <ol>
+        <li>Instalirajte VetAssist ekstenziju.</li>
+        <li>Otvorite AIRS.</li>
+        <li>Unesite license key i sačuvajte licencu.</li>
+      </ol>
+
+      <p style="margin-top:24px;">
+        <a
+          href="https://vetasist.carrd.co/"
+          target="_blank"
+          rel="noreferrer"
+          style="display:inline-block;padding:12px 18px;border-radius:8px;text-decoration:none;border:1px solid #222;color:#222;font-weight:700;"
+        >
+          Otvori VetAssist sajt
+        </a>
+      </p>
+    </div>
+  `;
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM_EMAIL,
+      to: [params.to],
+      subject,
+      html,
+      text,
+    }),
+  });
+
+  const data = await res.json().catch(() => null);
+
+  if (!res.ok) {
+    throw new Error(
+      `resend_send_failed:${res.status}:${JSON.stringify(data)}`
+    );
+  }
+
+  return { ok: true, data };
+}
+
+function escapeHtml(value: string): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const bodyText = await req.text();
@@ -477,12 +614,28 @@ export async function POST(req: NextRequest) {
     });
 
     let licenseKey: string | null = null;
+    let emailResult: unknown = null;
 
     if (localStatus === "active") {
       licenseKey = await ensureSingleActiveLicense({
         orgId: org.id,
         planId: planInfo.plan,
       });
+
+      if (
+        licenseKey &&
+        (payload.event === "subscription_created" || payload.event === "subscription_resumed")
+      ) {
+        emailResult = await sendLicenseEmail({
+          to: payload.email,
+          ownerName: payload.ownerName,
+          plan: planInfo.plan,
+          deviceLimit: planInfo.device_limit,
+          validUntil,
+          licenseKey,
+          testMode: payload.testMode,
+        });
+      }
     } else {
       const { error: deactivateErr } = await supabase
         .from("license_keys")
@@ -507,6 +660,7 @@ export async function POST(req: NextRequest) {
       valid_until: validUntil,
       cancel_at_period_end: isCancelAtPeriodEnd(payload.providerStatus, payload.endsAt),
       license_key: licenseKey,
+      email_result: emailResult,
     });
   } catch (err) {
     return json(
