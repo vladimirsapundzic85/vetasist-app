@@ -20,9 +20,13 @@ type License = {
   plan: string
 }
 
+type OrgMemberRow = {
+  org_id: string
+  organizations: { id: string; name: string }[] | { id: string; name: string } | null
+}
+
 export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null)
-  const [userId, setUserId] = useState<string | null>(null)
 
   const [org, setOrg] = useState<Org | null>(null)
   const [subscription, setSubscription] = useState<Sub | null>(null)
@@ -37,11 +41,26 @@ export default function OwnerDashboard() {
     if (error) throw error
 
     const user = data.session?.user ?? null
-
     setEmail(user?.email ?? null)
-    setUserId(user?.id ?? null)
 
     return user?.id ?? null
+  }
+
+  function normalizeOrganization(value: OrgMemberRow['organizations']): Org | null {
+    if (!value) return null
+
+    if (Array.isArray(value)) {
+      if (!value.length) return null
+      return {
+        id: String(value[0].id),
+        name: String(value[0].name),
+      }
+    }
+
+    return {
+      id: String(value.id),
+      name: String(value.name),
+    }
   }
 
   async function loadOrg(userId: string) {
@@ -50,15 +69,19 @@ export default function OwnerDashboard() {
       .select('org_id, organizations(id,name)')
       .eq('user_id', userId)
       .limit(1)
-      .single()
+      .single<OrgMemberRow>()
 
     if (error) throw error
 
-    const org = data.organizations as Org
+    const normalizedOrg = normalizeOrganization(data.organizations)
 
-    setOrg(org)
+    if (!normalizedOrg) {
+      throw new Error('Nije pronađena organizacija za ovaj nalog.')
+    }
 
-    return org.id
+    setOrg(normalizedOrg)
+
+    return normalizedOrg.id
   }
 
   async function loadSubscription(orgId: string) {
@@ -70,7 +93,7 @@ export default function OwnerDashboard() {
 
     if (error) throw error
 
-    setSubscription(data)
+    setSubscription((data as Sub | null) ?? null)
   }
 
   async function loadLicense(orgId: string) {
@@ -82,7 +105,7 @@ export default function OwnerDashboard() {
 
     if (error) throw error
 
-    setLicense(data)
+    setLicense((data as License | null) ?? null)
   }
 
   async function init() {
@@ -93,17 +116,21 @@ export default function OwnerDashboard() {
       const uid = await loadSession()
 
       if (!uid) {
-        setLoading(false)
+        setOrg(null)
+        setSubscription(null)
+        setLicense(null)
         return
       }
 
       const orgId = await loadOrg(uid)
 
       await loadSubscription(orgId)
-
       await loadLicense(orgId)
     } catch (e: any) {
       setError(e?.message ?? 'Unknown error')
+      setOrg(null)
+      setSubscription(null)
+      setLicense(null)
     } finally {
       setLoading(false)
     }
@@ -135,23 +162,22 @@ export default function OwnerDashboard() {
 
   return (
     <main style={{ padding: 40, maxWidth: 900 }}>
-
       <h1>VetAssist — Owner Panel</h1>
 
-      {email && (
+      {email ? (
         <div style={{ marginBottom: 20 }}>
           Ulogovan: <b>{email}</b>
           <button onClick={logout} style={{ marginLeft: 10 }}>
             Logout
           </button>
         </div>
+      ) : (
+        <div style={{ marginBottom: 20 }}>
+          Nisi ulogovan. Idi na <a href="/auth">/auth</a>
+        </div>
       )}
 
-      {error && (
-        <p style={{ color: 'red' }}>
-          Greška: {error}
-        </p>
-      )}
+      {error && <p style={{ color: 'red' }}>Greška: {error}</p>}
 
       <hr />
 
@@ -171,9 +197,9 @@ export default function OwnerDashboard() {
 
       {license ? (
         <div>
-
           <p>
-            <b>License key:</b><br/>
+            <b>License key:</b>
+            <br />
             <code>{license.license_key}</code>
           </p>
 
@@ -184,7 +210,6 @@ export default function OwnerDashboard() {
           <p>
             <b>Aktivna:</b> {license.is_active ? 'DA' : 'NE'}
           </p>
-
         </div>
       ) : (
         <p>Nema licence za ovu organizaciju.</p>
@@ -196,7 +221,6 @@ export default function OwnerDashboard() {
 
       {subscription ? (
         <div>
-
           <p>
             <b>Status:</b> {subscription.status}
           </p>
@@ -208,7 +232,6 @@ export default function OwnerDashboard() {
           <p>
             <b>Valid until:</b> {subscription.valid_until ?? 'nema'}
           </p>
-
         </div>
       ) : (
         <p>Nema subscription zapisa.</p>
@@ -225,7 +248,6 @@ export default function OwnerDashboard() {
         <li>promena plana</li>
         <li>uputstvo za instalaciju ekstenzije</li>
       </ul>
-
     </main>
   )
 }
