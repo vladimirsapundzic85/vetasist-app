@@ -150,7 +150,9 @@ async function getMonthlyResetLimitForPlan(plan: PlanId): Promise<number> {
 
 function getCurrentMonthStartIso(): string {
   const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0)
+  );
   return start.toISOString();
 }
 
@@ -161,6 +163,7 @@ async function countMonthlyDeviceResets(license_key: string): Promise<number> {
     .from("license_device_resets")
     .select("*", { count: "exact", head: true })
     .eq("license_key", license_key)
+    .eq("action", "reset")
     .gte("created_at", monthStart);
 
   if (error) {
@@ -600,13 +603,15 @@ export async function resetDeviceForLicense(params: {
       now.getTime() + RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
     ).toISOString();
 
+    const effectiveReason = String(params.reason || "").trim() || "admin_reset";
+
     const { error: updateErr } = await supabase
       .from("license_devices")
       .update({
         status: "reset_blocked",
         blocked_until: blockedUntil,
         reset_at: now.toISOString(),
-        reset_reason: params.reason ?? null,
+        reset_reason: effectiveReason,
         updated_at: now.toISOString(),
       })
       .eq("license_key", license_key)
@@ -627,7 +632,7 @@ export async function resetDeviceForLicense(params: {
       device_fp,
       action: "reset",
       performed_by: params.performed_by ?? null,
-      reason: params.reason ?? null,
+      reason: effectiveReason,
     });
 
     return {
@@ -680,15 +685,6 @@ export async function restoreResetBlockedDevice(params: {
 
     const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
     const resetCount = await countMonthlyDeviceResets(license_key);
-
-    if (resetCount >= resetLimit) {
-      return {
-        ok: false,
-        error: "reset_limit_reached",
-        resetCount,
-        resetLimit,
-      };
-    }
 
     const { data: device, error: deviceErr } = await supabase
       .from("license_devices")
@@ -772,7 +768,7 @@ export async function restoreResetBlockedDevice(params: {
       device_fp,
       action: "restore",
       performed_by: params.performed_by ?? null,
-      reason: params.reason ?? null,
+      reason: String(params.reason || "").trim() || "admin_restore",
     });
 
     return {
@@ -782,7 +778,7 @@ export async function restoreResetBlockedDevice(params: {
       orgId: info.orgId,
       deviceId: device.device_id ?? null,
       deviceFp: device_fp,
-      resetCount: resetCount + 1,
+      resetCount,
       resetLimit,
       blockedUntil: null,
     };
@@ -853,9 +849,10 @@ export async function resetAllDevicesForLicense(params: {
     }
 
     const rows = devices ?? [];
+    const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
+    const resetCount = await countMonthlyDeviceResets(license_key);
+
     if (!rows.length) {
-      const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
-      const resetCount = await countMonthlyDeviceResets(license_key);
       return {
         ok: true,
         action: "reset",
@@ -867,9 +864,6 @@ export async function resetAllDevicesForLicense(params: {
         blockedUntil: null,
       };
     }
-
-    const resetLimit = await getMonthlyResetLimitForPlan(info.planId);
-    const resetCount = await countMonthlyDeviceResets(license_key);
 
     if (resetCount + rows.length > resetLimit) {
       return {
@@ -885,6 +879,7 @@ export async function resetAllDevicesForLicense(params: {
       now.getTime() + RESET_COOLDOWN_DAYS * 24 * 60 * 60 * 1000
     ).toISOString();
 
+    const effectiveReason = String(params.reason || "").trim() || "admin_reset";
     const fps = rows.map((r) => String(r.device_fp || "")).filter(Boolean);
 
     const { error: updateErr } = await supabase
@@ -893,7 +888,7 @@ export async function resetAllDevicesForLicense(params: {
         status: "reset_blocked",
         blocked_until: blockedUntil,
         reset_at: now.toISOString(),
-        reset_reason: params.reason ?? null,
+        reset_reason: effectiveReason,
         updated_at: now.toISOString(),
       })
       .eq("license_key", license_key)
@@ -914,7 +909,7 @@ export async function resetAllDevicesForLicense(params: {
       device_fp: r.device_fp ?? null,
       action: "reset" as const,
       performed_by: params.performed_by ?? null,
-      reason: params.reason ?? null,
+      reason: effectiveReason,
     }));
 
     const { error: logErr } = await supabase
