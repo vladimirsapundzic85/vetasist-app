@@ -173,7 +173,7 @@ export default function OwnerDashboard() {
         </div>
       ) : (
         <div style={{ marginBottom: 20 }}>
-          Nisi ulogovan. Idi na <a href="/auth">/auth</a>
+          Nisi ulogovan. Idi na <a href="/app/auth">/app/auth</a>
         </div>
       )}
 
