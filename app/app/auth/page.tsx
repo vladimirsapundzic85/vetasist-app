@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { supabase } from '../../lib/supabase'
 
 export default function AuthPage() {
   const [email, setEmail] = useState('')
@@ -17,8 +17,8 @@ export default function AuthPage() {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: 'https://app.vetasist.net/app'
-      }
+        emailRedirectTo: 'https://app.vetasist.net/app',
+      },
     })
 
     setLoading(false)
@@ -32,7 +32,6 @@ export default function AuthPage() {
 
   return (
     <main style={{ padding: 40, maxWidth: 400 }}>
-
       <h1>VetAssist Login</h1>
 
       <p>Unesi email da dobiješ login link.</p>
@@ -44,13 +43,12 @@ export default function AuthPage() {
         style={{ width: '100%', padding: 8, marginBottom: 10 }}
       />
 
-      <button onClick={login} disabled={loading}>
+      <button onClick={login} disabled={loading || !email.trim()}>
         {loading ? 'Šaljem...' : 'Pošalji login link'}
       </button>
 
       {msg && <p style={{ color: 'green' }}>{msg}</p>}
       {err && <p style={{ color: 'red' }}>{err}</p>}
-
     </main>
   )
 }
