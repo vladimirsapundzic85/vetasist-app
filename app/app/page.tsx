@@ -40,6 +40,24 @@ type PlanRow = {
   device_limit: number | null;
 };
 
+type SubscriptionActionLinks = {
+  customer_portal: string | null;
+  update_payment_method: string | null;
+  update_customer_portal: string | null;
+};
+
+type SubscriptionActionPlan = {
+  id: string;
+  label: string;
+};
+
+type SubscriptionActionState = {
+  status: string;
+  provider_status: string | null;
+  valid_until: string | null;
+  cancel_at_period_end: boolean;
+};
+
 export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -50,18 +68,31 @@ export default function OwnerDashboard() {
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceLimit, setDeviceLimit] = useState<number | null>(null);
 
+  const [billingLinks, setBillingLinks] = useState<SubscriptionActionLinks | null>(null);
+  const [availablePlans, setAvailablePlans] = useState<SubscriptionActionPlan[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>("");
+  const [subscriptionActionState, setSubscriptionActionState] =
+    useState<SubscriptionActionState | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [devicesLoading, setDevicesLoading] = useState(false);
+  const [subscriptionActionsLoading, setSubscriptionActionsLoading] = useState(false);
   const [actionLoadingFp, setActionLoadingFp] = useState<string | null>(null);
+  const [subscriptionActionLoading, setSubscriptionActionLoading] =
+    useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
+  const [subscriptionActionsError, setSubscriptionActionsError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const activeDevicesCount = useMemo(
     () => devices.filter((d) => d.status === "active").length,
     [devices]
   );
+
+  const showResumeButton = !!subscriptionActionState?.cancel_at_period_end;
+  const showCancelButton = !subscriptionActionState?.cancel_at_period_end;
 
   async function loadSession() {
     const { data, error } = await supabase.auth.getSession();
@@ -128,6 +159,13 @@ export default function OwnerDashboard() {
 
     const sub = (data as Sub | null) ?? null;
     setSubscription(sub);
+
+    if (sub?.plan_id) {
+      setSelectedPlanId(String(sub.plan_id));
+    } else {
+      setSelectedPlanId("");
+    }
+
     return sub;
   }
 
@@ -195,11 +233,54 @@ export default function OwnerDashboard() {
     }
   }
 
+  async function loadSubscriptionActions(token: string) {
+    setSubscriptionActionsLoading(true);
+    setSubscriptionActionsError(null);
+
+    try {
+      const res = await fetch("/api/owner/subscription", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const text = await res.text();
+      let json: any = null;
+
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Nevažeći odgovor servera (${res.status}).`);
+      }
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.details || json?.error || "subscription_actions_load_failed");
+      }
+
+      setBillingLinks(json.links ?? null);
+      setAvailablePlans(json.available_plans ?? []);
+      setSubscriptionActionState(json.subscription ?? null);
+
+      if (json.subscription?.plan_id) {
+        setSelectedPlanId(String(json.subscription.plan_id));
+      }
+    } catch (e: any) {
+      setBillingLinks(null);
+      setAvailablePlans([]);
+      setSubscriptionActionState(null);
+      setSubscriptionActionsError(errorLabel(e?.message ?? "subscription_actions_load_failed"));
+    } finally {
+      setSubscriptionActionsLoading(false);
+    }
+  }
+
   async function init() {
     try {
       setLoading(true);
       setError(null);
       setMessage(null);
+      setSubscriptionActionsError(null);
 
       const sessionInfo = await loadSession();
 
@@ -209,6 +290,10 @@ export default function OwnerDashboard() {
         setLicense(null);
         setDevices([]);
         setDeviceLimit(null);
+        setBillingLinks(null);
+        setAvailablePlans([]);
+        setSubscriptionActionState(null);
+        setSelectedPlanId("");
         return;
       }
 
@@ -219,9 +304,9 @@ export default function OwnerDashboard() {
       await Promise.all([
         loadLicense(orgId),
         loadPlanLimit(sub?.plan_id),
+        loadDevices(orgId, sessionInfo.accessToken),
+        loadSubscriptionActions(sessionInfo.accessToken),
       ]);
-
-      await loadDevices(orgId, sessionInfo.accessToken);
     } catch (e: any) {
       setError(e?.message ?? "Unknown error");
       setOrg(null);
@@ -229,6 +314,10 @@ export default function OwnerDashboard() {
       setLicense(null);
       setDevices([]);
       setDeviceLimit(null);
+      setBillingLinks(null);
+      setAvailablePlans([]);
+      setSubscriptionActionState(null);
+      setSelectedPlanId("");
     } finally {
       setLoading(false);
     }
@@ -339,6 +428,89 @@ export default function OwnerDashboard() {
     }
   }
 
+  async function handleSubscriptionAction(
+    action: "cancel" | "resume" | "change_plan"
+  ) {
+    if (!accessToken) return;
+
+    if (action === "change_plan") {
+      if (!selectedPlanId) {
+        setSubscriptionActionsError("Izaberi plan.");
+        return;
+      }
+
+      if (selectedPlanId === String(subscription?.plan_id || "").trim().toLowerCase()) {
+        setSubscriptionActionsError("Već koristiš taj plan.");
+        return;
+      }
+    }
+
+    let confirmed = true;
+
+    if (action === "cancel") {
+      confirmed = window.confirm(
+        "Da li sigurno želiš da otkažeš pretplatu? Pretplata će ostati aktivna do kraja plaćenog perioda."
+      );
+    }
+
+    if (action === "resume") {
+      confirmed = window.confirm(
+        "Da li želiš da nastaviš automatsku pretplatu?"
+      );
+    }
+
+    if (action === "change_plan") {
+      const selectedLabel =
+        availablePlans.find((p) => p.id === selectedPlanId)?.label || selectedPlanId;
+
+      confirmed = window.confirm(
+        `Da li želiš da promeniš plan na ${selectedLabel}?`
+      );
+    }
+
+    if (!confirmed) return;
+
+    setSubscriptionActionLoading(action);
+    setSubscriptionActionsError(null);
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/owner/subscription", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action,
+          plan_id: action === "change_plan" ? selectedPlanId : undefined,
+        }),
+      });
+
+      const text = await res.text();
+      let json: any = null;
+
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Nevažeći odgovor servera (${res.status}).`);
+      }
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.details?.errors?.[0]?.detail || json?.details || json?.error || "subscription_action_failed");
+      }
+
+      setMessage(json?.message || "Akcija je uspešno poslata.");
+      await init();
+    } catch (e: any) {
+      setSubscriptionActionsError(
+        errorLabel(e?.message ?? "subscription_action_failed")
+      );
+    } finally {
+      setSubscriptionActionLoading(null);
+    }
+  }
+
   function formatDate(value: string | null) {
     if (!value) return "-";
 
@@ -387,6 +559,36 @@ export default function OwnerDashboard() {
     }
     if (err === "unauthorized") {
       return "Sesija je istekla. Uloguj se ponovo.";
+    }
+    if (err === "same_plan") {
+      return "Već koristiš taj plan.";
+    }
+    if (err === "missing_plan_id") {
+      return "Izaberi plan.";
+    }
+    if (err === "unknown_plan_id") {
+      return "Nepoznat plan.";
+    }
+    if (err === "no_lemonsqueezy_subscription") {
+      return "Za ovu organizaciju nije pronađena Lemon Squeezy pretplata.";
+    }
+    if (err === "lemonsqueezy_fetch_failed") {
+      return "Ne mogu da učitam billing linkove iz Lemon Squeezy-ja.";
+    }
+    if (err === "lemonsqueezy_cancel_failed") {
+      return "Otkazivanje pretplate nije uspelo.";
+    }
+    if (err === "lemonsqueezy_resume_failed") {
+      return "Nastavak pretplate nije uspeo.";
+    }
+    if (err === "lemonsqueezy_change_plan_failed") {
+      return "Promena plana nije uspela.";
+    }
+    if (err === "subscription_lookup_failed") {
+      return "Ne mogu da pronađem pretplatu.";
+    }
+    if (err === "membership_lookup_failed") {
+      return "Ne mogu da proverim pristup organizaciji.";
     }
     return err;
   }
@@ -447,9 +649,9 @@ export default function OwnerDashboard() {
       <h2>Pretplata</h2>
       {subscription ? (
         <div>
-          <p><b>Status:</b> {subscription.status}</p>
+          <p><b>Status:</b> {subscriptionActionState?.status || subscription.status}</p>
           <p><b>Plan:</b> {subscription.plan_id}</p>
-          <p><b>Valid until:</b> {subscription.valid_until ?? "nema"}</p>
+          <p><b>Valid until:</b> {formatDate(subscriptionActionState?.valid_until || subscription.valid_until)}</p>
           <p>
             <b>Devices used:</b>{" "}
             {activeDevicesCount}
@@ -459,6 +661,141 @@ export default function OwnerDashboard() {
       ) : (
         <p>Nema subscription zapisa.</p>
       )}
+
+      <div
+        style={{
+          marginTop: 20,
+          padding: 16,
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          background: "#fafafa",
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Upravljanje pretplatom</h3>
+
+        {subscriptionActionsError && (
+          <p style={{ color: "red" }}>Greška pretplata: {subscriptionActionsError}</p>
+        )}
+
+        {subscriptionActionsLoading ? (
+          <p>Učitavam billing opcije...</p>
+        ) : billingLinks ? (
+          <>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                flexWrap: "wrap",
+                marginBottom: 16,
+              }}
+            >
+              {billingLinks.customer_portal ? (
+                <a
+                  href={billingLinks.customer_portal}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={actionLinkStyle}
+                >
+                  Otvori billing portal
+                </a>
+              ) : null}
+
+              {billingLinks.update_payment_method ? (
+                <a
+                  href={billingLinks.update_payment_method}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={actionLinkStyle}
+                >
+                  Promeni karticu
+                </a>
+              ) : null}
+
+              {billingLinks.update_customer_portal ? (
+                <a
+                  href={billingLinks.update_customer_portal}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={actionLinkStyle}
+                >
+                  Promeni plan u Lemon-u
+                </a>
+              ) : null}
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                flexWrap: "wrap",
+                alignItems: "center",
+                marginBottom: 16,
+              }}
+            >
+              <select
+                value={selectedPlanId}
+                onChange={(e) => setSelectedPlanId(e.target.value)}
+                style={{
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1px solid #d1d5db",
+                  minWidth: 180,
+                }}
+              >
+                <option value="">Izaberi plan</option>
+                {availablePlans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.label}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={() => handleSubscriptionAction("change_plan")}
+                disabled={
+                  subscriptionActionLoading === "change_plan" || !selectedPlanId
+                }
+                style={buttonStyle}
+              >
+                {subscriptionActionLoading === "change_plan"
+                  ? "Radim..."
+                  : "Promeni plan"}
+              </button>
+
+              {showCancelButton ? (
+                <button
+                  onClick={() => handleSubscriptionAction("cancel")}
+                  disabled={subscriptionActionLoading === "cancel"}
+                  style={dangerButtonStyle}
+                >
+                  {subscriptionActionLoading === "cancel"
+                    ? "Radim..."
+                    : "Otkaži pretplatu"}
+                </button>
+              ) : null}
+
+              {showResumeButton ? (
+                <button
+                  onClick={() => handleSubscriptionAction("resume")}
+                  disabled={subscriptionActionLoading === "resume"}
+                  style={buttonStyle}
+                >
+                  {subscriptionActionLoading === "resume"
+                    ? "Radim..."
+                    : "Nastavi pretplatu"}
+                </button>
+              ) : null}
+            </div>
+
+            <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
+              Otkazivanje važi za kraj tekućeg plaćenog perioda. Ako je pretplata već
+              otkazana za kraj perioda, ovde ćeš dobiti opciju da je nastaviš.
+            </p>
+          </>
+        ) : (
+          <p>Nisu dostupne billing opcije za ovu pretplatu.</p>
+        )}
+      </div>
 
       <hr />
 
@@ -530,43 +867,43 @@ export default function OwnerDashboard() {
       ) : null}
 
       <div
-  style={{
-    marginTop: 20,
-    padding: 14,
-    border: "1px solid #ddd",
-    background: "#fafafa",
-    borderRadius: 6,
-    lineHeight: 1.6,
-  }}
->
-  <p style={{ margin: "0 0 10px 0", fontWeight: 700 }}>
-    Objašnjenje statusa i pravila
-  </p>
+        style={{
+          marginTop: 20,
+          padding: 14,
+          border: "1px solid #ddd",
+          background: "#fafafa",
+          borderRadius: 6,
+          lineHeight: 1.6,
+        }}
+      >
+        <p style={{ margin: "0 0 10px 0", fontWeight: 700 }}>
+          Objašnjenje statusa i pravila
+        </p>
 
-  <p style={{ margin: "0 0 8px 0" }}>
-    <b>Active</b> — uređaj trenutno zauzima jedno mesto u licenci i može da koristi alat.
-  </p>
+        <p style={{ margin: "0 0 8px 0" }}>
+          <b>Active</b> — uređaj trenutno zauzima jedno mesto u licenci i može da koristi alat.
+        </p>
 
-  <p style={{ margin: "0 0 8px 0" }}>
-    <b>Inactive</b> — uređaj nije korišćen duže od 45 dana i njegovo mesto je automatski oslobođeno za novi uređaj.
-  </p>
+        <p style={{ margin: "0 0 8px 0" }}>
+          <b>Inactive</b> — uređaj nije korišćen duže od 45 dana i njegovo mesto je automatski oslobođeno za novi uređaj.
+        </p>
 
-  <p style={{ margin: "0 0 8px 0" }}>
-    <b>Reset (cooldown)</b> — uređaj je ručno resetovan i privremeno blokiran. U tom periodu ne može ponovo da se aktivira pod istim identitetom.
-  </p>
+        <p style={{ margin: "0 0 8px 0" }}>
+          <b>Reset (cooldown)</b> — uređaj je ručno resetovan i privremeno blokiran. U tom periodu ne može ponovo da se aktivira pod istim identitetom.
+        </p>
 
-  <p style={{ margin: "0 0 8px 0" }}>
-    <b>Reset at</b> — vreme poslednjeg resetovanja uređaja.
-  </p>
+        <p style={{ margin: "0 0 8px 0" }}>
+          <b>Reset at</b> — vreme poslednjeg resetovanja uređaja.
+        </p>
 
-  <p style={{ margin: "0 0 8px 0" }}>
-    <b>Blocked until</b> — datum do kog traje blokada nakon reseta.
-  </p>
+        <p style={{ margin: "0 0 8px 0" }}>
+          <b>Blocked until</b> — datum do kog traje blokada nakon reseta.
+        </p>
 
-  <p style={{ margin: 0 }}>
-    <b>Undo reset</b> — moguće je samo kratko nakon reseta, kao zaštita od slučajnog klika i sprečavanje zloupotrebe rotacije uređaja.
-  </p>
-</div>
+        <p style={{ margin: 0 }}>
+          <b>Undo reset</b> — moguće je samo kratko nakon reseta, kao zaštita od slučajnog klika i sprečavanje zloupotrebe rotacije uređaja.
+        </p>
+      </div>
     </main>
   );
 }
@@ -582,4 +919,35 @@ const tdStyle: React.CSSProperties = {
   borderBottom: "1px solid #eee",
   padding: 8,
   verticalAlign: "top",
+};
+
+const buttonStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid #111827",
+  background: "#111827",
+  color: "white",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const dangerButtonStyle: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid #b91c1c",
+  background: "#b91c1c",
+  color: "white",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const actionLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 8,
+  textDecoration: "none",
+  border: "1px solid #d1d5db",
+  background: "white",
+  color: "#111827",
+  fontWeight: 700,
 };
