@@ -275,6 +275,7 @@ export default function OwnerDashboard() {
         throw new Error(json.details || json.error || "undo_failed");
       }
 
+      
       setMessage("Reset je vraćen.");
       await loadDevices(org.id, accessToken);
     } catch (e: any) {
