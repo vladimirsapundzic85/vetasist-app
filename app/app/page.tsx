@@ -529,9 +529,44 @@ export default function OwnerDashboard() {
         </div>
       ) : null}
 
-      <p style={{ marginTop: 16, opacity: 0.8 }}>
-        Napomena: reset uređaja aktivira cooldown. Undo reset je moguć samo kratko nakon reseta.
-      </p>
+      <div
+  style={{
+    marginTop: 20,
+    padding: 14,
+    border: "1px solid #ddd",
+    background: "#fafafa",
+    borderRadius: 6,
+    lineHeight: 1.6,
+  }}
+>
+  <p style={{ margin: "0 0 10px 0", fontWeight: 700 }}>
+    Objašnjenje statusa i pravila
+  </p>
+
+  <p style={{ margin: "0 0 8px 0" }}>
+    <b>Active</b> — uređaj trenutno zauzima jedno mesto u licenci i može da koristi alat.
+  </p>
+
+  <p style={{ margin: "0 0 8px 0" }}>
+    <b>Inactive</b> — uređaj nije korišćen duže od 45 dana i njegovo mesto je automatski oslobođeno za novi uređaj.
+  </p>
+
+  <p style={{ margin: "0 0 8px 0" }}>
+    <b>Reset (cooldown)</b> — uređaj je ručno resetovan i privremeno blokiran. U tom periodu ne može ponovo da se aktivira pod istim identitetom.
+  </p>
+
+  <p style={{ margin: "0 0 8px 0" }}>
+    <b>Reset at</b> — vreme poslednjeg resetovanja uređaja.
+  </p>
+
+  <p style={{ margin: "0 0 8px 0" }}>
+    <b>Blocked until</b> — datum do kog traje blokada nakon reseta.
+  </p>
+
+  <p style={{ margin: 0 }}>
+    <b>Undo reset</b> — moguće je samo kratko nakon reseta, kao zaštita od slučajnog klika i sprečavanje zloupotrebe rotacije uređaja.
+  </p>
+</div>
     </main>
   );
 }
