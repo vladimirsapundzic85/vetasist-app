@@ -101,6 +101,7 @@ export type DeviceResetResult =
 
 const DEVICE_PASSIVE_AFTER_DAYS = 45;
 const RESET_COOLDOWN_DAYS = 30;
+const OWNER_RESET_UNDO_MINUTES = 10;
 
 async function getDeviceLimitForPlan(plan: PlanId): Promise<number> {
   const normalizedPlan = String(plan || "").trim();
@@ -580,8 +581,8 @@ export async function resetDeviceForLicense(params: {
     }
 
     const { data: device, error: deviceErr } = await supabase
-      .from("license_devices")
-      .select("device_id, device_fp, status")
+  .from("license_devices")
+  .select("device_id, device_fp, status, blocked_until, reset_at")
       .eq("license_key", license_key)
       .eq("device_fp", device_fp)
       .maybeSingle();
@@ -713,6 +714,23 @@ export async function restoreResetBlockedDevice(params: {
         resetLimit,
       };
     }
+    // OWNER undo window check
+if (device.reset_at) {
+  const resetTime = new Date(device.reset_at);
+  const now = new Date();
+
+  const diffMinutes = (now.getTime() - resetTime.getTime()) / (1000 * 60);
+
+  if (diffMinutes > OWNER_RESET_UNDO_MINUTES) {
+    return {
+      ok: false,
+      error: "owner_restore_window_expired",
+      details: "owner_restore_time_window_expired",
+      resetCount,
+      resetLimit,
+    };
+  }
+}
 
     const limit = await getDeviceLimitForPlan(info.planId);
 
@@ -809,13 +827,17 @@ export async function resetAllDevicesForLicense(params: {
   | {
       ok: false;
       error:
-        | "license_key_not_found"
-        | "license_key_inactive"
-        | "no_subscription"
-        | "inactive_license"
-        | "expired"
-        | "reset_limit_reached"
-        | "server_error";
+  | "license_key_not_found"
+  | "license_key_inactive"
+  | "no_subscription"
+  | "inactive_license"
+  | "expired"
+  | "device_not_found"
+  | "device_not_reset_blocked"
+  | "device_limit_reached"
+  | "reset_limit_reached"
+  | "server_error"
+    | "owner_restore_window_expired";
       details?: string | null;
       resetCount?: number;
       resetLimit?: number;
