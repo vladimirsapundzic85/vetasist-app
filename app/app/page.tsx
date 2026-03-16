@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 type Org = {
@@ -35,6 +35,11 @@ type Device = {
   reset_reason?: string | null;
 };
 
+type PlanRow = {
+  id: string;
+  device_limit: number | null;
+};
+
 export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
@@ -43,6 +48,7 @@ export default function OwnerDashboard() {
   const [subscription, setSubscription] = useState<Sub | null>(null);
   const [license, setLicense] = useState<License | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
+  const [deviceLimit, setDeviceLimit] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [devicesLoading, setDevicesLoading] = useState(false);
@@ -51,6 +57,11 @@ export default function OwnerDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  const activeDevicesCount = useMemo(
+    () => devices.filter((d) => d.status === "active").length,
+    [devices]
+  );
 
   async function loadSession() {
     const { data, error } = await supabase.auth.getSession();
@@ -115,7 +126,26 @@ export default function OwnerDashboard() {
 
     if (error) throw error;
 
-    setSubscription((data as Sub | null) ?? null);
+    const sub = (data as Sub | null) ?? null;
+    setSubscription(sub);
+    return sub;
+  }
+
+  async function loadPlanLimit(planId: string | null | undefined) {
+    if (!planId) {
+      setDeviceLimit(null);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("plans")
+      .select("id,device_limit")
+      .eq("id", planId)
+      .maybeSingle<PlanRow>();
+
+    if (error) throw error;
+
+    setDeviceLimit(data?.device_limit ?? null);
   }
 
   async function loadLicense(orgId: string) {
@@ -143,10 +173,17 @@ export default function OwnerDashboard() {
         },
       });
 
-      const json = await res.json();
+      const text = await res.text();
+      let json: any = null;
 
-      if (!res.ok || !json.ok) {
-        throw new Error(json.error || "devices_load_failed");
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Nevažeći odgovor servera (${res.status}).`);
+      }
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.details || json?.error || "devices_load_failed");
       }
 
       setDevices(json.devices ?? []);
@@ -171,14 +208,17 @@ export default function OwnerDashboard() {
         setSubscription(null);
         setLicense(null);
         setDevices([]);
+        setDeviceLimit(null);
         return;
       }
 
       const orgId = await loadOrg(sessionInfo.userId);
 
+      const sub = await loadSubscription(orgId);
+
       await Promise.all([
-        loadSubscription(orgId),
         loadLicense(orgId),
+        loadPlanLimit(sub?.plan_id),
       ]);
 
       await loadDevices(orgId, sessionInfo.accessToken);
@@ -188,6 +228,7 @@ export default function OwnerDashboard() {
       setSubscription(null);
       setLicense(null);
       setDevices([]);
+      setDeviceLimit(null);
     } finally {
       setLoading(false);
     }
@@ -234,16 +275,23 @@ export default function OwnerDashboard() {
         }),
       });
 
-      const json = await res.json();
+      const text = await res.text();
+      let json: any = null;
 
-      if (!res.ok || !json.ok) {
-        throw new Error(json.details || json.error || "reset_failed");
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Nevažeći odgovor servera (${res.status}).`);
+      }
+
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.details || json?.error || "reset_failed");
       }
 
       setMessage("Uređaj je resetovan.");
       await loadDevices(org.id, accessToken);
     } catch (e: any) {
-      setDevicesError(e?.message ?? "reset_failed");
+      setDevicesError(errorLabel(e?.message ?? "reset_failed"));
     } finally {
       setActionLoadingFp(null);
     }
@@ -269,17 +317,23 @@ export default function OwnerDashboard() {
         }),
       });
 
-      const json = await res.json();
+      const text = await res.text();
+      let json: any = null;
 
-      if (!res.ok || !json.ok) {
-        throw new Error(json.details || json.error || "undo_failed");
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        throw new Error(`Nevažeći odgovor servera (${res.status}).`);
       }
 
-      
+      if (!res.ok || !json?.ok) {
+        throw new Error(json?.details || json?.error || "undo_failed");
+      }
+
       setMessage("Reset je vraćen.");
       await loadDevices(org.id, accessToken);
     } catch (e: any) {
-      setDevicesError(e?.message ?? "undo_failed");
+      setDevicesError(errorLabel(e?.message ?? "undo_failed"));
     } finally {
       setActionLoadingFp(null);
     }
@@ -292,6 +346,49 @@ export default function OwnerDashboard() {
     if (Number.isNaN(date.getTime())) return value;
 
     return date.toLocaleString("sr-RS");
+  }
+
+  function shortFp(fp: string) {
+    if (!fp) return "";
+    return fp.length > 18 ? fp.slice(0, 18) + "…" : fp;
+  }
+
+  function statusLabel(status: string | null) {
+    if (status === "active") return "Active";
+    if (status === "passive") return "Inactive";
+    if (status === "reset_blocked") return "Reset (cooldown)";
+    return status ?? "-";
+  }
+
+  function errorLabel(err: string) {
+    if (err === "owner_restore_time_window_expired") {
+      return "Undo period je istekao.";
+    }
+    if (err === "owner_restore_window_expired") {
+      return "Undo period je istekao.";
+    }
+    if (err === "device_reset_cooldown_active") {
+      return "Uređaj je u cooldown periodu nakon reseta.";
+    }
+    if (err === "device_not_found") {
+      return "Uređaj nije pronađen.";
+    }
+    if (err === "device_not_reset_blocked") {
+      return "Ovaj uređaj nije u reset blokadi.";
+    }
+    if (err === "device_limit_reached") {
+      return "Dostignut je limit uređaja za ovaj plan.";
+    }
+    if (err === "no_active_license") {
+      return "Nema aktivne licence za ovu organizaciju.";
+    }
+    if (err === "forbidden") {
+      return "Nemaš pristup ovoj organizaciji.";
+    }
+    if (err === "unauthorized") {
+      return "Sesija je istekla. Uloguj se ponovo.";
+    }
+    return err;
   }
 
   if (loading) {
@@ -353,6 +450,11 @@ export default function OwnerDashboard() {
           <p><b>Status:</b> {subscription.status}</p>
           <p><b>Plan:</b> {subscription.plan_id}</p>
           <p><b>Valid until:</b> {subscription.valid_until ?? "nema"}</p>
+          <p>
+            <b>Devices used:</b>{" "}
+            {activeDevicesCount}
+            {deviceLimit !== null ? ` / ${deviceLimit}` : ""}
+          </p>
         </div>
       ) : (
         <p>Nema subscription zapisa.</p>
@@ -392,8 +494,10 @@ export default function OwnerDashboard() {
                 return (
                   <tr key={device.device_fp}>
                     <td style={tdStyle}>{device.device_id ?? "-"}</td>
-                    <td style={tdStyle}><code>{device.device_fp}</code></td>
-                    <td style={tdStyle}>{device.status ?? "-"}</td>
+                    <td style={tdStyle} title={device.device_fp}>
+                      <code>{shortFp(device.device_fp)}</code>
+                    </td>
+                    <td style={tdStyle}>{statusLabel(device.status)}</td>
                     <td style={tdStyle}>{formatDate(device.first_seen)}</td>
                     <td style={tdStyle}>{formatDate(device.last_seen)}</td>
                     <td style={tdStyle}>{formatDate(device.blocked_until)}</td>
