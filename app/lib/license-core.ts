@@ -689,7 +689,7 @@ export async function restoreResetBlockedDevice(params: {
 
     const { data: device, error: deviceErr } = await supabase
       .from("license_devices")
-      .select("device_id, device_fp, status, blocked_until")
+      .select("device_id, device_fp, status, blocked_until, reset_at")
       .eq("license_key", license_key)
       .eq("device_fp", device_fp)
       .maybeSingle();
