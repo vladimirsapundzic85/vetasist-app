@@ -55,10 +55,14 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({
-      ok: true,
-      deviceCount: result.deviceCount,
-      limit: result.limit,
-    });
+  ok: true,
+  action: result.action,
+  device_fp: result.deviceFp,
+  device_id: result.deviceId,
+  reset_count: result.resetCount,
+  reset_limit: result.resetLimit,
+  blocked_until: result.blockedUntil,
+});
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: "server_error" },
