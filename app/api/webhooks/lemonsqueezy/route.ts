@@ -43,6 +43,8 @@ const HANDLED_EVENTS = new Set([
   "subscription_paused",
   "subscription_unpaused",
   "subscription_plan_changed",
+  "subscription_payment_success",
+  "subscription_payment_failed",
 ]);
 
 function json(data: unknown, status = 200) {
@@ -102,6 +104,13 @@ function mapProviderStatusToLocalStatus(providerStatus: string): "active" | "ina
   const s = String(providerStatus || "").trim().toLowerCase();
 
   if (s === "expired") return "inactive";
+  if (s === "paused") return "inactive";
+
+  // cancelled ostaje aktivan do kraja plaćenog perioda
+  if (s === "cancelled") return "active";
+
+  // active, on_trial, past_due, unpaid, resumed, unpaused itd.
+  // za sada tretiramo kao active dok ne dođe explicit expired/paused
   return "active";
 }
 
@@ -337,51 +346,60 @@ async function upsertSubscription(params: {
   return data;
 }
 
-async function ensureSingleActiveLicense(params: {
+async function ensureCanonicalLicenseForOrg(params: {
   orgId: string;
   planId: PlanId;
 }) {
   const orgId = safeString(params.orgId);
   const planId = safeString(params.planId);
 
-  const { data: activeLicenses, error } = await supabase
+  const { data: allLicenses, error } = await supabase
     .from("license_keys")
     .select("license_key, created_at, is_active, org_id, plan")
     .eq("org_id", orgId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`license_lookup_failed:${error.message}`);
   }
 
-  if (activeLicenses && activeLicenses.length > 0) {
-    const primary = activeLicenses[0];
-    const extras = activeLicenses.slice(1).map((x) => x.license_key);
+  if (allLicenses && allLicenses.length > 0) {
+    const canonical = allLicenses[0];
+    const extras = allLicenses.slice(1).map((x) => x.license_key);
 
     if (extras.length > 0) {
-      const { error: deactivateErr } = await supabase
+      const { error: deactivateExtrasErr } = await supabase
         .from("license_keys")
         .update({ is_active: false })
         .in("license_key", extras);
 
-      if (deactivateErr) {
-        throw new Error(`license_deactivate_extras_failed:${deactivateErr.message}`);
+      if (deactivateExtrasErr) {
+        throw new Error(`license_deactivate_extras_failed:${deactivateExtrasErr.message}`);
       }
     }
 
-    if (safeString(primary.plan) !== planId) {
+    const updatePayload: { is_active?: boolean; plan?: string } = {};
+
+    if (!canonical.is_active) {
+      updatePayload.is_active = true;
+    }
+
+    if (safeString(canonical.plan) !== planId) {
+      updatePayload.plan = planId;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
       const { error: updateErr } = await supabase
         .from("license_keys")
-        .update({ plan: planId })
-        .eq("license_key", primary.license_key);
+        .update(updatePayload)
+        .eq("license_key", canonical.license_key);
 
       if (updateErr) {
-        throw new Error(`license_plan_snapshot_update_failed:${updateErr.message}`);
+        throw new Error(`license_update_failed:${updateErr.message}`);
       }
     }
 
-    return primary.license_key;
+    return canonical.license_key;
   }
 
   let licenseKey = "";
@@ -418,6 +436,18 @@ async function ensureSingleActiveLicense(params: {
   return licenseKey;
 }
 
+async function deactivateAllLicensesForOrg(orgId: string) {
+  const { error } = await supabase
+    .from("license_keys")
+    .update({ is_active: false })
+    .eq("org_id", orgId)
+    .eq("is_active", true);
+
+  if (error) {
+    throw new Error(`license_deactivate_failed:${error.message}`);
+  }
+}
+
 async function sendLicenseEmail(params: {
   to: string;
   ownerName: string;
@@ -451,6 +481,8 @@ async function sendLicenseEmail(params: {
     ``,
     `Vaš license key:`,
     `${params.licenseKey}`,
+    ``,
+    `Licenca ostaje vezana za vašu organizaciju i ostaje ista i kada se plan promeni ili kada se pretplata obnovi.`,
     ``,
     `Dalji koraci:`,
     `1. Instalirajte VetAssist ekstenziju.`,
@@ -487,6 +519,10 @@ async function sendLicenseEmail(params: {
           ${escapeHtml(params.licenseKey)}
         </div>
       </div>
+
+      <p style="margin-top:16px;">
+        Licenca ostaje vezana za vašu organizaciju i ostaje ista i kada se plan promeni ili kada se pretplata obnovi.
+      </p>
 
       <h2 style="font-size:18px;">Dalji koraci</h2>
       <ol>
@@ -526,9 +562,7 @@ async function sendLicenseEmail(params: {
   const data = await res.json().catch(() => null);
 
   if (!res.ok) {
-    throw new Error(
-      `resend_send_failed:${res.status}:${JSON.stringify(data)}`
-    );
+    throw new Error(`resend_send_failed:${res.status}:${JSON.stringify(data)}`);
   }
 
   return { ok: true, data };
@@ -539,7 +573,7 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
 
@@ -567,7 +601,10 @@ export async function POST(req: NextRequest) {
     }
 
     if (!payload.email) {
-      return json({ ok: false, error: "missing_owner_email", event: payload.event }, 400);
+      return json(
+        { ok: false, error: "missing_owner_email", event: payload.event },
+        400
+      );
     }
 
     const planInfo = resolvePlanInfo(
@@ -617,7 +654,7 @@ export async function POST(req: NextRequest) {
     let emailResult: unknown = null;
 
     if (localStatus === "active") {
-      licenseKey = await ensureSingleActiveLicense({
+      licenseKey = await ensureCanonicalLicenseForOrg({
         orgId: org.id,
         planId: planInfo.plan,
       });
@@ -637,15 +674,7 @@ export async function POST(req: NextRequest) {
         });
       }
     } else {
-      const { error: deactivateErr } = await supabase
-        .from("license_keys")
-        .update({ is_active: false })
-        .eq("org_id", org.id)
-        .eq("is_active", true);
-
-      if (deactivateErr) {
-        throw new Error(`license_deactivate_failed:${deactivateErr.message}`);
-      }
+      await deactivateAllLicensesForOrg(org.id);
     }
 
     return json({
