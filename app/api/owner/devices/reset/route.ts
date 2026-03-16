@@ -39,7 +39,7 @@ export async function POST(req: Request) {
     // 2️⃣ Reset uređaja kroz license-core
     const result = await resetDeviceForLicense({
       license_key,
-      device_id,
+      device_fp,
       reason: "owner_reset",
     });
 
