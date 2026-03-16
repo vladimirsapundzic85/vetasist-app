@@ -836,8 +836,8 @@ export async function resetAllDevicesForLicense(params: {
   | "device_not_reset_blocked"
   | "device_limit_reached"
   | "reset_limit_reached"
-  | "server_error"
-    | "owner_restore_window_expired";
+  | "owner_restore_window_expired"
+  | "server_error";
       details?: string | null;
       resetCount?: number;
       resetLimit?: number;
