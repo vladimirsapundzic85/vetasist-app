@@ -1,19 +1,20 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { restoreResetBlockedDevice } from "@/app/lib/license-core";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
-    const url = new URL(req.url);
-    const org_id = url.searchParams.get("org_id");
+    const body = await req.json();
+    const { org_id, device_fp } = body;
 
-    if (!org_id) {
+    if (!org_id || !device_fp) {
       return NextResponse.json(
-        { ok: false, error: "missing_org_id" },
+        { ok: false, error: "missing_parameters" },
         { status: 400 }
       );
     }
@@ -35,26 +36,33 @@ export async function GET(req: Request) {
 
     const license_key = license.license_key;
 
-    // 2️⃣ Izvuci uređaje za tu licencu
-    const { data: devices, error: devicesError } = await supabase
-      .from("license_devices")
-      .select(
-        "device_id, device_fp, status, first_seen, last_seen, blocked_until, reset_at"
-      )
-      .eq("license_key", license_key)
-      .order("last_seen", { ascending: false });
+    // 2️⃣ Undo reset (samo ako je u 10 minuta)
+    const result = await restoreResetBlockedDevice({
+      license_key,
+      device_fp,
+      reason: "owner_restore",
+    });
 
-    if (devicesError) {
+    if (!result.ok) {
       return NextResponse.json(
-        { ok: false, error: "devices_query_failed" },
-        { status: 500 }
+        {
+          ok: false,
+          error: result.error,
+          details: result.details ?? null,
+        },
+        { status: 400 }
       );
     }
 
     return NextResponse.json({
-      ok: true,
-      devices,
-    });
+  ok: true,
+  action: result.action,
+  device_fp: result.deviceFp,
+  device_id: result.deviceId,
+  reset_count: result.resetCount,
+  reset_limit: result.resetLimit,
+  blocked_until: result.blockedUntil,
+});
   } catch (err) {
     return NextResponse.json(
       { ok: false, error: "server_error" },
