@@ -10,9 +10,9 @@ const supabase = createClient(
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { org_id, device_id } = body;
+    const { org_id, device_fp } = body;
 
-    if (!org_id || !device_id) {
+    if (!org_id || !device_fp) {
       return NextResponse.json(
         { ok: false, error: "missing_parameters" },
         { status: 400 }
