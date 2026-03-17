@@ -84,18 +84,10 @@ function resolvePlanInfo(variantId: number, productNameRaw: string): PlanInfo | 
 
   const productName = String(productNameRaw || "").trim().toLowerCase();
 
-  if (productName.includes("basic")) {
-    return { plan: "basic", device_limit: 1 };
-  }
-  if (productName.includes("team")) {
-    return { plan: "team", device_limit: 3 };
-  }
-  if (productName.includes("pro")) {
-    return { plan: "pro", device_limit: 10 };
-  }
-  if (productName.includes("exclusive")) {
-    return { plan: "exclusive", device_limit: 30 };
-  }
+  if (productName.includes("basic")) return { plan: "basic", device_limit: 1 };
+  if (productName.includes("team")) return { plan: "team", device_limit: 3 };
+  if (productName.includes("pro")) return { plan: "pro", device_limit: 10 };
+  if (productName.includes("exclusive")) return { plan: "exclusive", device_limit: 30 };
 
   return null;
 }
@@ -104,13 +96,6 @@ function mapProviderStatusToLocalStatus(providerStatus: string): "active" | "ina
   const s = String(providerStatus || "").trim().toLowerCase();
 
   if (s === "expired") return "inactive";
-  if (s === "paused") return "inactive";
-
-  // cancelled ostaje aktivan do kraja plaćenog perioda
-  if (s === "cancelled") return "active";
-
-  // active, on_trial, past_due, unpaid, resumed, unpaused itd.
-  // za sada tretiramo kao active dok ne dođe explicit expired/paused
   return "active";
 }
 
@@ -193,15 +178,20 @@ async function findCanonicalOrganizationByEmail(email: string) {
   const { data, error } = await supabase
     .from("organizations")
     .select("id, name, owner_email, created_at")
-    .ilike("owner_email", normalizedEmail)
-    .order("created_at", { ascending: true })
-    .limit(1);
+    .eq("owner_email", normalizedEmail)
+    .order("created_at", { ascending: true });
 
   if (error) {
     throw new Error(`organization_lookup_failed:${error.message}`);
   }
 
-  return data?.[0] ?? null;
+  if (!data || data.length === 0) return null;
+
+  if (data.length > 1) {
+    throw new Error(`duplicate_owner_email:${normalizedEmail}`);
+  }
+
+  return data[0];
 }
 
 async function findOrCreateOrganization(params: {
@@ -353,7 +343,7 @@ async function ensureCanonicalLicenseForOrg(params: {
   const orgId = safeString(params.orgId);
   const planId = safeString(params.planId);
 
-  const { data: allLicenses, error } = await supabase
+  const { data: licenses, error } = await supabase
     .from("license_keys")
     .select("license_key, created_at, is_active, org_id, plan")
     .eq("org_id", orgId)
@@ -363,39 +353,32 @@ async function ensureCanonicalLicenseForOrg(params: {
     throw new Error(`license_lookup_failed:${error.message}`);
   }
 
-  if (allLicenses && allLicenses.length > 0) {
-    const canonical = allLicenses[0];
-    const extras = allLicenses.slice(1).map((x) => x.license_key);
+  if (licenses && licenses.length > 0) {
+    const canonical = licenses[0];
+    const otherKeys = licenses.slice(1).map((x) => x.license_key);
 
-    if (extras.length > 0) {
-      const { error: deactivateExtrasErr } = await supabase
+    if (!canonical.is_active || safeString(canonical.plan) !== planId) {
+      const { error: canonicalUpdateErr } = await supabase
         .from("license_keys")
-        .update({ is_active: false })
-        .in("license_key", extras);
+        .update({
+          is_active: true,
+          plan: planId,
+        })
+        .eq("license_key", canonical.license_key);
 
-      if (deactivateExtrasErr) {
-        throw new Error(`license_deactivate_extras_failed:${deactivateExtrasErr.message}`);
+      if (canonicalUpdateErr) {
+        throw new Error(`license_canonical_update_failed:${canonicalUpdateErr.message}`);
       }
     }
 
-    const updatePayload: { is_active?: boolean; plan?: string } = {};
-
-    if (!canonical.is_active) {
-      updatePayload.is_active = true;
-    }
-
-    if (safeString(canonical.plan) !== planId) {
-      updatePayload.plan = planId;
-    }
-
-    if (Object.keys(updatePayload).length > 0) {
-      const { error: updateErr } = await supabase
+    if (otherKeys.length > 0) {
+      const { error: deactivateErr } = await supabase
         .from("license_keys")
-        .update(updatePayload)
-        .eq("license_key", canonical.license_key);
+        .update({ is_active: false })
+        .in("license_key", otherKeys);
 
-      if (updateErr) {
-        throw new Error(`license_update_failed:${updateErr.message}`);
+      if (deactivateErr) {
+        throw new Error(`license_deactivate_extras_failed:${deactivateErr.message}`);
       }
     }
 
@@ -482,8 +465,6 @@ async function sendLicenseEmail(params: {
     `Vaš license key:`,
     `${params.licenseKey}`,
     ``,
-    `Licenca ostaje vezana za vašu organizaciju i ostaje ista i kada se plan promeni ili kada se pretplata obnovi.`,
-    ``,
     `Dalji koraci:`,
     `1. Instalirajte VetAssist ekstenziju.`,
     `2. Otvorite AIRS.`,
@@ -519,10 +500,6 @@ async function sendLicenseEmail(params: {
           ${escapeHtml(params.licenseKey)}
         </div>
       </div>
-
-      <p style="margin-top:16px;">
-        Licenca ostaje vezana za vašu organizaciju i ostaje ista i kada se plan promeni ili kada se pretplata obnovi.
-      </p>
 
       <h2 style="font-size:18px;">Dalji koraci</h2>
       <ol>
@@ -573,7 +550,7 @@ function escapeHtml(value: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
 
@@ -601,10 +578,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!payload.email) {
-      return json(
-        { ok: false, error: "missing_owner_email", event: payload.event },
-        400
-      );
+      return json({ ok: false, error: "missing_owner_email", event: payload.event }, 400);
     }
 
     const planInfo = resolvePlanInfo(
@@ -692,11 +666,24 @@ export async function POST(req: NextRequest) {
       email_result: emailResult,
     });
   } catch (err) {
+    const details = err instanceof Error ? err.message : "unknown_server_error";
+
+    if (String(details).startsWith("duplicate_owner_email:")) {
+      return json(
+        {
+          ok: false,
+          error: "duplicate_owner_email",
+          details,
+        },
+        409
+      );
+    }
+
     return json(
       {
         ok: false,
         error: "server_error",
-        details: err instanceof Error ? err.message : "unknown_server_error",
+        details,
       },
       500
     );
