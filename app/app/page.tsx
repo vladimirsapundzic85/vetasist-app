@@ -1588,9 +1588,3 @@ export async function POST(req: NextRequest) {
     );
   }
 }
-'''
-
-Path("/mnt/data/vetassist_cleanup_hard_rules.sql").write_text(sql_cleanup, encoding="utf-8")
-Path("/mnt/data/app_app_page_hard_rules.tsx").write_text(owner_panel, encoding="utf-8")
-Path("/mnt/data/lemonsqueezy_webhook_hard_rules.ts").write_text(webhook_content, encoding="utf-8")
-print("Saved files:\n/mnt/data/vetassist_cleanup_hard_rules.sql\n/mnt/data/app_app_page_hard_rules.tsx\n/mnt/data/lemonsqueezy_webhook_hard_rules.ts")
