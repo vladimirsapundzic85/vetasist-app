@@ -13,11 +13,17 @@ const LEMON_API_KEY = process.env.LEMON_SQUEEZY_API_KEY!;
 
 type PlanId = "basic" | "team" | "pro" | "exclusive";
 
-const PLAN_TO_VARIANT_ID: Record<PlanId, number> = {
+const PLAN_TO_VARIANT_ID_LIVE: Record<PlanId, number> = {
   basic: 1358750,
   team: 1394223,
   pro: 1395047,
   exclusive: 1395048,
+};
+
+const PLAN_TO_VARIANT_ID_TEST: Partial<Record<PlanId, number>> = {
+  basic: 1395337,
+  team: 1413312,
+  pro: 1413318,
 };
 
 function getAuthClient(req: Request) {
@@ -48,28 +54,35 @@ async function requireOwnerContext(req: Request) {
     return { ok: false as const, status: 401, error: "unauthorized" };
   }
 
-  const { data: membership, error: membershipErr } = await supabaseAdmin
+  const { data: memberships, error: membershipErr } = await supabaseAdmin
     .from("org_members")
     .select("org_id, role")
     .eq("user_id", user.id)
-    .limit(1)
-    .maybeSingle();
+    .eq("role", "owner")
+    .order("created_at", { ascending: true });
 
   if (membershipErr) {
     return { ok: false as const, status: 500, error: "membership_lookup_failed" };
   }
 
-  if (!membership?.org_id) {
+  if (!memberships || memberships.length === 0) {
     return { ok: false as const, status: 403, error: "forbidden" };
   }
+
+  if (memberships.length > 1) {
+    return { ok: false as const, status: 409, error: "multiple_owner_orgs_detected" };
+  }
+
+  const ownerOrgId = String(memberships[0].org_id);
 
   const { data: subscription, error: subErr } = await supabaseAdmin
     .from("subscriptions")
     .select(
       "org_id, plan_id, status, valid_until, external_subscription_id, external_provider, external_variant_id, external_customer_id, provider_status, cancel_at_period_end"
     )
-    .eq("org_id", membership.org_id)
+    .eq("org_id", ownerOrgId)
     .eq("external_provider", "lemonsqueezy")
+    .eq("status", "active")
     .order("updated_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -85,7 +98,7 @@ async function requireOwnerContext(req: Request) {
   return {
     ok: true as const,
     user,
-    org_id: String(membership.org_id),
+    org_id: ownerOrgId,
     subscription,
   };
 }
@@ -114,13 +127,34 @@ async function lemonFetch(path: string, init?: RequestInit) {
   return { res, data };
 }
 
-function mapPlanToVariantId(planId: string): number | null {
+function mapPlanToVariantId(planId: string, isTestMode: boolean): number | null {
   const normalized = String(planId || "").trim().toLowerCase() as PlanId;
-  return PLAN_TO_VARIANT_ID[normalized] ?? null;
+
+  if (isTestMode) {
+    return PLAN_TO_VARIANT_ID_TEST[normalized] ?? null;
+  }
+
+  return PLAN_TO_VARIANT_ID_LIVE[normalized] ?? null;
 }
 
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status });
+}
+
+function extractLemonErrorDetails(data: any): string {
+  if (!data) return "unknown_lemonsqueezy_error";
+
+  if (typeof data === "string") return data;
+
+  const firstDetail = data?.errors?.[0]?.detail;
+  if (firstDetail) return String(firstDetail);
+
+  const firstTitle = data?.errors?.[0]?.title;
+  if (firstTitle) return String(firstTitle);
+
+  if (data?.message) return String(data.message);
+
+  return JSON.stringify(data);
 }
 
 export async function GET(req: Request) {
@@ -140,7 +174,8 @@ export async function GET(req: Request) {
         {
           ok: false,
           error: "lemonsqueezy_fetch_failed",
-          details: data,
+          details: extractLemonErrorDetails(data),
+          raw: data,
         },
         502
       );
@@ -148,6 +183,7 @@ export async function GET(req: Request) {
 
     const attrs = data?.data?.attributes ?? {};
     const urls = attrs?.urls ?? {};
+    const isTestMode = !!attrs?.test_mode;
 
     return json({
       ok: true,
@@ -162,6 +198,7 @@ export async function GET(req: Request) {
           typeof attrs?.cancelled === "boolean"
             ? attrs.cancelled
             : !!ctx.subscription.cancel_at_period_end,
+        test_mode: isTestMode,
       },
       links: {
         customer_portal: urls?.customer_portal ?? null,
@@ -203,6 +240,23 @@ export async function POST(req: Request) {
       return json({ ok: false, error: "missing_action" }, 400);
     }
 
+    const lemonCurrent = await lemonFetch(`/v1/subscriptions/${subscriptionId}`);
+
+    if (!lemonCurrent.res.ok) {
+      return json(
+        {
+          ok: false,
+          error: "lemonsqueezy_fetch_failed",
+          details: extractLemonErrorDetails(lemonCurrent.data),
+          raw: lemonCurrent.data,
+        },
+        502
+      );
+    }
+
+    const currentAttrs = lemonCurrent.data?.data?.attributes ?? {};
+    const isTestMode = !!currentAttrs?.test_mode;
+
     if (action === "cancel") {
       const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`, {
         method: "DELETE",
@@ -213,7 +267,8 @@ export async function POST(req: Request) {
           {
             ok: false,
             error: "lemonsqueezy_cancel_failed",
-            details: data,
+            details: extractLemonErrorDetails(data),
+            raw: data,
           },
           502
         );
@@ -248,7 +303,8 @@ export async function POST(req: Request) {
           {
             ok: false,
             error: "lemonsqueezy_resume_failed",
-            details: data,
+            details: extractLemonErrorDetails(data),
+            raw: data,
           },
           502
         );
@@ -273,7 +329,7 @@ export async function POST(req: Request) {
         return json({ ok: false, error: "same_plan" }, 400);
       }
 
-      const variantId = mapPlanToVariantId(newPlanId);
+      const variantId = mapPlanToVariantId(newPlanId, isTestMode);
 
       if (!variantId) {
         return json({ ok: false, error: "unknown_plan_id" }, 400);
@@ -299,7 +355,8 @@ export async function POST(req: Request) {
           {
             ok: false,
             error: "lemonsqueezy_change_plan_failed",
-            details: data,
+            details: extractLemonErrorDetails(data),
+            raw: data,
           },
           502
         );
