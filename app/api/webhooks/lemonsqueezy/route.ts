@@ -31,7 +31,9 @@ const PLAN_MAP: Record<number, PlanInfo> = {
   1395048: { plan: "exclusive", device_limit: 30 },
 
   // TEST
-  1395337: { plan: "basic", device_limit: 1 },
+1395337: { plan: "basic", device_limit: 1 },
+1413318: { plan: "pro", device_limit: 10 },
+1413312: { plan: "team", device_limit: 3 },
 };
 
 const HANDLED_EVENTS = new Set([
