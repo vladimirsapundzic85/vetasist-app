@@ -170,16 +170,21 @@ export async function GET(req: Request) {
     const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`);
 
     if (!res.ok) {
-      return json(
-        {
-          ok: false,
-          error: "lemonsqueezy_fetch_failed",
-          details: extractLemonErrorDetails(data),
-          raw: data,
-        },
-        502
-      );
-    }
+  return json(
+    {
+      ok: false,
+      error: "lemonsqueezy_fetch_failed",
+      details: extractLemonErrorDetails(data),
+      raw: data,
+      debug: {
+        subscription_id: subscriptionId,
+        lemon_api_key_present: !!LEMON_API_KEY,
+        lemon_api_key_prefix: LEMON_API_KEY ? LEMON_API_KEY.slice(0, 12) : null,
+      },
+    },
+    502
+  );
+}
 
     const attrs = data?.data?.attributes ?? {};
     const urls = attrs?.urls ?? {};
