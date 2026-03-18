@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 const LEMON_API_KEY = process.env.LEMON_SQUEEZY_API_KEY!;
 
@@ -20,13 +26,76 @@ function json(body: unknown, status = 200) {
   return NextResponse.json(body, { status });
 }
 
+function normalizeEmail(value: unknown): string {
+  return String(value || "").trim().toLowerCase();
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
     const plan = String(body?.plan || "") as PlanId;
+    const email = normalizeEmail(body?.email);
 
     if (!plan || !PLAN_TO_VARIANT_ID[plan]) {
       return json({ ok: false, error: "invalid_plan" }, 400);
+    }
+
+    if (!email) {
+      return json({ ok: false, error: "missing_email", message: "Unesi email." }, 400);
+    }
+
+    const { data: org, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, owner_email, created_at")
+      .ilike("owner_email", email)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (orgErr) {
+      return json(
+        {
+          ok: false,
+          error: "organization_lookup_failed",
+          details: orgErr.message,
+        },
+        500
+      );
+    }
+
+    if (org?.id) {
+      const { data: sub, error: subErr } = await supabase
+        .from("subscriptions")
+        .select("status, valid_until, external_provider, external_subscription_id")
+        .eq("org_id", org.id)
+        .eq("external_provider", "lemonsqueezy")
+        .eq("status", "active")
+        .limit(1)
+        .maybeSingle();
+
+      if (subErr) {
+        return json(
+          {
+            ok: false,
+            error: "subscription_lookup_failed",
+            details: subErr.message,
+          },
+          500
+        );
+      }
+
+      if (sub) {
+        return json(
+          {
+            ok: false,
+            error: "subscription_already_active",
+            message:
+              "Za ovaj email već postoji aktivna pretplata. Uloguj se u Owner Panel umesto nove kupovine.",
+            redirect: "/app/auth",
+          },
+          409
+        );
+      }
     }
 
     const variantId = PLAN_TO_VARIANT_ID[plan];
@@ -46,6 +115,9 @@ export async function POST(req: Request) {
               embed: false,
               media: false,
               logo: true,
+            },
+            checkout_data: {
+              email,
             },
             product_options: {
               redirect_url: "https://app.vetasist.net/app",
