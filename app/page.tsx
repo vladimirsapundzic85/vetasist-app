@@ -324,34 +324,39 @@ export default function HomePage() {
               gap: 20,
               marginTop: 20,
             }}
-          >
-            {[
-              {
-                id: 'basic',
-                name: 'Basic',
-                price: '15€',
-                desc: 'Osnovni alati, manji obim rada i početak automatizacije za organizacije koje žele jednostavan ulazak u sistem.',
-              },
-              {
-                id: 'team',
-                name: 'Team',
-                price: '35€',
-                desc: 'Više uređaja i bolji kapacitet za timove koji rade veći broj svakodnevnih provera i izveštaja.',
-              },
-              {
-                id: 'pro',
-                name: 'Pro',
-                price: '75€',
-                desc: 'Napredni alati i maksimalna brzina rada za ozbiljan svakodnevni operativni rad.',
-                highlight: true,
-              },
-              {
-                id: 'exclusive',
-                name: 'Exclusive',
-                price: '180€',
-                desc: 'Pun pristup, najveći kapacitet i prioritet za organizacije koje žele maksimum bez ograničavanja rada.',
-              },
-            ].map((plan) => (
+          >{[
+  {
+    id: 'basic',
+    name: 'Basic',
+    price: '15€',
+    desc: 'Osnovni alati, manji obim rada i početak automatizacije za organizacije koje žele jednostavan ulazak u sistem.',
+  },
+  {
+    id: 'team',
+    name: 'Team',
+    price: '35€',
+    desc: 'Više uređaja i bolji kapacitet za timove koji rade veći broj svakodnevnih provera i izveštaja.',
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    price: '75€',
+    desc: 'Napredni alati i maksimalna brzina rada za ozbiljan svakodnevni operativni rad.',
+    highlight: true,
+  },
+  {
+    id: 'exclusive',
+    name: 'Exclusive',
+    price: '180€',
+    desc: 'Pun pristup, najveći kapacitet i prioritet za organizacije koje žele maksimum bez ograničavanja rada.',
+  },
+  {
+    id: 'pro_test',
+    name: 'Pro TEST',
+    price: '75€',
+    desc: 'Privremeni test plan za proveru checkout i webhook toka. Ovaj plan se kasnije uklanja.',
+  },
+].map((plan) => (
               <div
                 key={plan.id}
                 style={{
