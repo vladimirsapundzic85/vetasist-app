@@ -1,4 +1,29 @@
 export default function HomePage() {
+  async function handleCheckout(plan: string) {
+  try {
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ plan }),
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      alert(data.message || data.error);
+      if (data.redirect) {
+        window.location.href = data.redirect;
+      }
+      return;
+    }
+
+    window.location.href = data.url;
+  } catch (err) {
+    alert("Greška pri pokretanju checkout-a.");
+  }
+}
   return (
     <main
       style={{
@@ -291,121 +316,81 @@ export default function HomePage() {
           </p>
 
           <div
-            style={{
-              maxWidth: 520,
-              margin: '0 auto',
-              border: '1px solid #dbeafe',
-              borderRadius: 18,
-              padding: 30,
-              boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
-              background: 'linear-gradient(180deg, #ffffff 0%, #f8fbff 100%)',
-            }}
-          >
-            <div
-              style={{
-                display: 'inline-block',
-                padding: '6px 10px',
-                borderRadius: 999,
-                background: '#dbeafe',
-                color: '#1d4ed8',
-                fontWeight: 700,
-                fontSize: 13,
-                marginBottom: 14,
-              }}
-            >
-              Početni plan
-            </div>
+  style={{
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 20,
+    marginTop: 20,
+  }}
+>
+  {[
+    {
+      id: "basic",
+      name: "Basic",
+      price: "15€",
+      desc: "Osnovni alati, manji obim rada",
+    },
+    {
+      id: "team",
+      name: "Team",
+      price: "35€",
+      desc: "Više uređaja i veći tim",
+    },
+    {
+      id: "pro",
+      name: "Pro",
+      price: "75€",
+      desc: "Napredni alati i maksimalna brzina rada",
+      highlight: true,
+    },
+    {
+      id: "exclusive",
+      name: "Exclusive",
+      price: "180€",
+      desc: "Pun pristup + prioritetna podrška",
+    },
+  ].map((plan) => (
+    <div
+      key={plan.id}
+      style={{
+        border: plan.highlight ? "2px solid #2563eb" : "1px solid #dbeafe",
+        borderRadius: 18,
+        padding: 24,
+        background: plan.highlight ? "#eff6ff" : "white",
+        textAlign: "left",
+      }}
+    >
+      <h3 style={{ fontSize: 22, marginBottom: 8 }}>{plan.name}</h3>
 
-            <div
-              style={{
-                fontSize: 48,
-                fontWeight: 800,
-                lineHeight: 1,
-                marginBottom: 8,
-              }}
-            >
-              15€
-              <span
-                style={{
-                  fontSize: 18,
-                  fontWeight: 600,
-                  color: '#6b7280',
-                }}
-              >
-                {' '}
-                / mesečno
-              </span>
-            </div>
+      <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
+        {plan.price}
+        <span style={{ fontSize: 14, color: "#6b7280" }}>
+          {" "} / mesečno
+        </span>
+      </div>
 
-            <div
-              style={{
-                color: '#4b5563',
-                fontSize: 16,
-                marginBottom: 22,
-              }}
-            >
-              po organizaciji
-            </div>
+      <p style={{ color: "#4b5563", marginBottom: 16 }}>
+        {plan.desc}
+      </p>
 
-            <ul
-              style={{
-                listStyle: 'none',
-                padding: 0,
-                margin: '0 0 24px',
-                textAlign: 'left',
-                lineHeight: 1.9,
-                fontSize: 16,
-              }}
-            >
-              <li>✔ pristup osnovnim alatima</li>
-              <li>✔ licenca po organizaciji</li>
-              <li>✔ kontrola broja uređaja</li>
-              <li>✔ podrška putem email-a</li>
-            </ul>
-
-            <div
-              style={{
-                display: 'flex',
-                gap: 12,
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-              }}
-            >
-              <a
-                href="/app"
-                style={{
-                  display: 'inline-block',
-                  padding: '14px 20px',
-                  borderRadius: 10,
-                  textDecoration: 'none',
-                  background: '#111827',
-                  color: 'white',
-                  fontWeight: 700,
-                  border: '1px solid #111827',
-                }}
-              >
-                Otvori aplikaciju
-              </a>
-
-              <a
-                href="mailto:vladimirsapundzic@gmail.com"
-                style={{
-                  display: 'inline-block',
-                  padding: '14px 20px',
-                  borderRadius: 10,
-                  textDecoration: 'none',
-                  background: 'white',
-                  color: '#111827',
-                  fontWeight: 700,
-                  border: '1px solid #d1d5db',
-                }}
-              >
-                Zatraži demo
-              </a>
-            </div>
-          </div>
-        </div>
-      </section>
+      <button
+        onClick={() => handleCheckout(plan.id)}
+        style={{
+          width: "100%",
+          padding: "12px",
+          borderRadius: 10,
+          background: "#111827",
+          color: "white",
+          fontWeight: 700,
+          border: "none",
+          cursor: "pointer",
+        }}
+      >
+        Kupi plan
+      </button>
+    </div>
+  ))}
+</div>
 
       <section style={{ padding: '64px 20px', background: '#0f172a', color: 'white' }}>
         <div
