@@ -18,6 +18,7 @@ const PLAN_TO_VARIANT_ID: Record<PlanId, number> = {
   team: 1394223,
   pro: 1395047,
   exclusive: 1395048,
+  pro_test: 1413318,
 };
 
 function json(body: unknown, status = 200) {
