@@ -4,10 +4,12 @@ import { useState } from "react";
 
 export default function HomePage() {
   const [checkoutEmail, setCheckoutEmail] = useState("");
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  async function handleCheckout(plan: string) {
+  async function handleCheckout(plan: string, emailOverride?: string) {
     try {
-      const email = checkoutEmail.trim().toLowerCase();
+      const email = (emailOverride ?? checkoutEmail).trim().toLowerCase();
 
       if (!email) {
         alert("Unesi email pre kupovine.");
@@ -331,55 +333,6 @@ export default function HomePage() {
 
           <div
             style={{
-              maxWidth: 520,
-              margin: "0 auto 24px",
-              textAlign: "left",
-            }}
-          >
-            <label
-              htmlFor="checkout-email"
-              style={{
-                display: "block",
-                marginBottom: 8,
-                fontWeight: 700,
-                color: "#1f2937",
-              }}
-            >
-              Email za kupovinu
-            </label>
-
-            <input
-              id="checkout-email"
-              type="email"
-              value={checkoutEmail}
-              onChange={(e) => setCheckoutEmail(e.target.value)}
-              placeholder="unesi@email.com"
-              style={{
-                width: "100%",
-                padding: "14px 16px",
-                borderRadius: 10,
-                border: "1px solid #cbd5e1",
-                fontSize: 16,
-                boxSizing: "border-box",
-              }}
-            />
-
-            <p
-              style={{
-                marginTop: 8,
-                marginBottom: 0,
-                color: "#6b7280",
-                fontSize: 14,
-                lineHeight: 1.6,
-              }}
-            >
-              Ako za ovaj email već postoji aktivna pretplata, nova kupovina će
-              biti blokirana i bićeš preusmeren na prijavu.
-            </p>
-          </div>
-
-          <div
-            style={{
               display: "grid",
               gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
               gap: 20,
@@ -473,7 +426,10 @@ export default function HomePage() {
                 </p>
 
                 <button
-                  onClick={() => handleCheckout(plan.id)}
+                  onClick={() => {
+                    setSelectedPlan(plan.id);
+                    setIsModalOpen(true);
+                  }}
                   style={{
                     width: "100%",
                     padding: "12px 16px",
@@ -566,6 +522,98 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {isModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            padding: 20,
+          }}
+        >
+          <div
+            style={{
+              background: "white",
+              padding: 24,
+              borderRadius: 16,
+              width: "100%",
+              maxWidth: 420,
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }}
+          >
+            <h3 style={{ marginTop: 0, marginBottom: 10 }}>
+              Unesi email za kupovinu
+            </h3>
+
+            <p
+              style={{
+                color: "#6b7280",
+                fontSize: 14,
+                lineHeight: 1.6,
+                marginTop: 0,
+                marginBottom: 16,
+              }}
+            >
+              Na ovu adresu biće vezana pretplata i licenca.
+            </p>
+
+            <input
+              type="email"
+              value={checkoutEmail}
+              onChange={(e) => setCheckoutEmail(e.target.value)}
+              placeholder="unesi@email.com"
+              style={{
+                width: "100%",
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: "1px solid #cbd5e1",
+                marginBottom: 16,
+                boxSizing: "border-box",
+              }}
+            />
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: 10,
+                  border: "1px solid #ccc",
+                  background: "white",
+                  cursor: "pointer",
+                }}
+              >
+                Otkaži
+              </button>
+
+              <button
+                onClick={async () => {
+                  if (!selectedPlan) return;
+                  await handleCheckout(selectedPlan, checkoutEmail);
+                }}
+                style={{
+                  flex: 1,
+                  padding: "10px",
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#111827",
+                  color: "white",
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Nastavi na plaćanje
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
