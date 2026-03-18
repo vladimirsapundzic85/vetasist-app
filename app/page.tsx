@@ -1,29 +1,30 @@
 export default function HomePage() {
   async function handleCheckout(plan: string) {
-  try {
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ plan }),
-    });
+    try {
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ plan }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!data.ok) {
-      alert(data.message || data.error);
-      if (data.redirect) {
-        window.location.href = data.redirect;
+      if (!data.ok) {
+        alert(data.message || data.error);
+        if (data.redirect) {
+          window.location.href = data.redirect;
+        }
+        return;
       }
-      return;
-    }
 
-    window.location.href = data.url;
-  } catch (err) {
-    alert("Greška pri pokretanju checkout-a.");
+      window.location.href = data.url;
+    } catch (err) {
+      alert("Greška pri pokretanju checkout-a.");
+    }
   }
-}
+
   return (
     <main
       style={{
@@ -299,7 +300,7 @@ export default function HomePage() {
               fontWeight: 800,
             }}
           >
-            Jednostavna cena
+            Planovi i cene
           </h2>
 
           <p
@@ -316,81 +317,113 @@ export default function HomePage() {
           </p>
 
           <div
-  style={{
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 20,
-    marginTop: 20,
-  }}
->
-  {[
-    {
-      id: "basic",
-      name: "Basic",
-      price: "15€",
-      desc: "Osnovni alati, manji obim rada",
-    },
-    {
-      id: "team",
-      name: "Team",
-      price: "35€",
-      desc: "Više uređaja i veći tim",
-    },
-    {
-      id: "pro",
-      name: "Pro",
-      price: "75€",
-      desc: "Napredni alati i maksimalna brzina rada",
-      highlight: true,
-    },
-    {
-      id: "exclusive",
-      name: "Exclusive",
-      price: "180€",
-      desc: "Pun pristup + prioritetna podrška",
-    },
-  ].map((plan) => (
-    <div
-      key={plan.id}
-      style={{
-        border: plan.highlight ? "2px solid #2563eb" : "1px solid #dbeafe",
-        borderRadius: 18,
-        padding: 24,
-        background: plan.highlight ? "#eff6ff" : "white",
-        textAlign: "left",
-      }}
-    >
-      <h3 style={{ fontSize: 22, marginBottom: 8 }}>{plan.name}</h3>
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 20,
+              marginTop: 20,
+            }}
+          >
+            {[
+              {
+                id: 'basic',
+                name: 'Basic',
+                price: '15€',
+                desc: 'Osnovni alati, manji obim rada i početak automatizacije za organizacije koje žele jednostavan ulazak u sistem.',
+              },
+              {
+                id: 'team',
+                name: 'Team',
+                price: '35€',
+                desc: 'Više uređaja i bolji kapacitet za timove koji rade veći broj svakodnevnih provera i izveštaja.',
+              },
+              {
+                id: 'pro',
+                name: 'Pro',
+                price: '75€',
+                desc: 'Napredni alati i maksimalna brzina rada za ozbiljan svakodnevni operativni rad.',
+                highlight: true,
+              },
+              {
+                id: 'exclusive',
+                name: 'Exclusive',
+                price: '180€',
+                desc: 'Pun pristup, najveći kapacitet i prioritet za organizacije koje žele maksimum bez ograničavanja rada.',
+              },
+            ].map((plan) => (
+              <div
+                key={plan.id}
+                style={{
+                  border: plan.highlight ? '2px solid #2563eb' : '1px solid #dbeafe',
+                  borderRadius: 18,
+                  padding: 24,
+                  background: plan.highlight ? '#eff6ff' : 'white',
+                  textAlign: 'left',
+                  boxShadow: '0 18px 45px rgba(15, 23, 42, 0.08)',
+                }}
+              >
+                <h3
+                  style={{
+                    margin: '0 0 10px',
+                    fontSize: 24,
+                    fontWeight: 800,
+                  }}
+                >
+                  {plan.name}
+                </h3>
 
-      <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>
-        {plan.price}
-        <span style={{ fontSize: 14, color: "#6b7280" }}>
-          {" "} / mesečno
-        </span>
-      </div>
+                <div
+                  style={{
+                    fontSize: 42,
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    marginBottom: 10,
+                  }}
+                >
+                  {plan.price}
+                  <span
+                    style={{
+                      fontSize: 18,
+                      fontWeight: 600,
+                      color: '#6b7280',
+                    }}
+                  >
+                    {' '}
+                    / mesečno
+                  </span>
+                </div>
 
-      <p style={{ color: "#4b5563", marginBottom: 16 }}>
-        {plan.desc}
-      </p>
+                <p
+                  style={{
+                    color: '#4b5563',
+                    fontSize: 16,
+                    lineHeight: 1.7,
+                    marginBottom: 18,
+                  }}
+                >
+                  {plan.desc}
+                </p>
 
-      <button
-        onClick={() => handleCheckout(plan.id)}
-        style={{
-          width: "100%",
-          padding: "12px",
-          borderRadius: 10,
-          background: "#111827",
-          color: "white",
-          fontWeight: 700,
-          border: "none",
-          cursor: "pointer",
-        }}
-      >
-        Kupi plan
-      </button>
-    </div>
-  ))}
-</div>
+                <button
+                  onClick={() => handleCheckout(plan.id)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    borderRadius: 10,
+                    background: '#111827',
+                    color: 'white',
+                    fontWeight: 700,
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Kupi plan
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <section style={{ padding: '64px 20px', background: '#0f172a', color: 'white' }}>
         <div
