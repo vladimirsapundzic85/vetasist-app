@@ -11,7 +11,7 @@ const supabase = createClient(
 const LEMON_API_KEY = process.env.LEMON_SQUEEZY_API_KEY!;
 const STORE_ID = 300112; // tvoj store_id (iz webhooka)
 
-type PlanId = "basic" | "team" | "pro" | "exclusive";
+type PlanId = "basic" | "team" | "pro" | "exclusive" | "pro_test";
 
 const PLAN_TO_VARIANT_ID: Record<PlanId, number> = {
   basic: 1358750,
