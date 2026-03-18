@@ -10,8 +10,10 @@ type Org = {
 
 type Sub = {
   plan_id: string;
-  status: string;
+  status: string; // lokalni access status iz baze
   valid_until: string | null;
+  provider_status?: string | null;
+  cancel_at_period_end?: boolean | null;
 };
 
 type License = {
@@ -164,7 +166,7 @@ export default function OwnerDashboard() {
   async function loadSubscription(orgId: string) {
     const { data, error } = await supabase
       .from("subscriptions")
-      .select("plan_id,status,valid_until")
+      .select("plan_id,status,valid_until,provider_status,cancel_at_period_end")
       .eq("org_id", orgId)
       .maybeSingle();
 
@@ -628,14 +630,31 @@ export default function OwnerDashboard() {
       <h2>Pretplata</h2>
       {subscription ? (
         <div>
-          <p><b>Status:</b> {subscriptionActionState?.status || subscription.status}</p>
-          <p><b>Plan:</b> {subscription.plan_id}</p>
-          <p><b>Valid until:</b> {formatDate(subscriptionActionState?.valid_until || subscription.valid_until)}</p>
-          <p>
-            <b>Devices used:</b> {activeDevicesCount}
-            {deviceLimit !== null ? ` / ${deviceLimit}` : ""}
-          </p>
-        </div>
+  <p><b>Status pristupa:</b> {subscription.status}</p>
+  <p>
+    <b>Status pretplate:</b>{" "}
+    {subscriptionActionState?.provider_status ||
+      subscription.provider_status ||
+      subscriptionActionState?.status ||
+      "-"}
+  </p>
+  <p><b>Plan:</b> {subscription.plan_id}</p>
+  <p>
+    <b>Valid until:</b>{" "}
+    {formatDate(subscriptionActionState?.valid_until || subscription.valid_until)}
+  </p>
+  <p>
+    <b>Otkazivanje na kraju perioda:</b>{" "}
+    {(subscriptionActionState?.cancel_at_period_end ??
+      subscription.cancel_at_period_end)
+      ? "DA"
+      : "NE"}
+  </p>
+  <p>
+    <b>Devices used:</b> {activeDevicesCount}
+    {deviceLimit !== null ? ` / ${deviceLimit}` : ""}
+  </p>
+</div>
       ) : (
         <p>Nema subscription zapisa za ovu organizaciju.</p>
       )}
@@ -743,8 +762,7 @@ export default function OwnerDashboard() {
             </div>
 
             <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
-              Otkazivanje važi za kraj tekućeg plaćenog perioda. Ako je pretplata već
-              otkazana za kraj perioda, ovde ćeš dobiti opciju da je nastaviš.
+              Status pristupa određuje da li licenca trenutno radi. Status pretplate pokazuje stanje u Lemon-u. Ako je pretplata otkazana za kraj perioda, pristup ostaje aktivan do datuma isteka.
             </p>
           </>
         ) : (
