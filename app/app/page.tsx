@@ -762,7 +762,7 @@ export default function OwnerDashboard() {
             </div>
 
             <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
-              Status pristupa određuje da li licenca trenutno radi. Status pretplate pokazuje stanje u Lemon-u. Ako je pretplata otkazana za kraj perioda, pristup ostaje aktivan do datuma isteka.
+              Ovde vidiš da li je licenca aktivna i do kada možeš da koristiš alat. Ako je pretplata otkazana, alat nastavlja da radi do datuma isteka licence.
             </p>
           </>
         ) : (
