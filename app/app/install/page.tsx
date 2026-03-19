@@ -133,7 +133,7 @@ export default function InstallPage() {
                   fontWeight: 700,
                 }}
               >
-                Otvori VetAssist
+                Idi na početnu stranu
               </a>
             </div>
 
@@ -222,7 +222,7 @@ export default function InstallPage() {
               <div>
                 <strong>Kako da resetujem uređaj?</strong>
                 <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-                  Reset se radi iz admin panela (owner). Ako nemaš pristup – javi se podršci.
+                  Instalacioni link će uskoro biti dostupan na ovoj strani. Do tada prati uputstvo iz emaila i koristi VetAssist alat nakon unosa licence.
                 </p>
               </div>
 
