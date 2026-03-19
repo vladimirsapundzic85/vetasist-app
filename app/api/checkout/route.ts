@@ -112,10 +112,11 @@ export async function POST(req: Request) {
           type: "checkouts",
           attributes: {
             checkout_options: {
-              embed: false,
-              media: false,
-              logo: true,
-            },
+  embed: false,
+  media: false,
+  logo: true,
+  redirect_url: "https://app.vetasist.net/success",
+},
             checkout_data: {
               email,
             },
