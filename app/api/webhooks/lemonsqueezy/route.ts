@@ -31,9 +31,9 @@ const PLAN_MAP: Record<number, PlanInfo> = {
   1395048: { plan: "exclusive", device_limit: 30 },
 
   // TEST
-1395337: { plan: "basic", device_limit: 1 },
-1413318: { plan: "pro", device_limit: 10 },
-1413312: { plan: "team", device_limit: 3 },
+  1395337: { plan: "basic", device_limit: 1 },
+  1413318: { plan: "pro", device_limit: 10 },
+  1413312: { plan: "team", device_limit: 3 },
 };
 
 const HANDLED_EVENTS = new Set([
@@ -48,6 +48,9 @@ const HANDLED_EVENTS = new Set([
   "subscription_payment_success",
   "subscription_payment_failed",
 ]);
+
+const INSTALL_URL = "https://app.vetasist.net/install";
+const SUPPORT_EMAIL = "vladimirsapundzic@gmail.com";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -433,6 +436,15 @@ async function deactivateAllLicensesForOrg(orgId: string) {
   }
 }
 
+function escapeHtml(value: string): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 async function sendLicenseEmail(params: {
   to: string;
   ownerName: string;
@@ -455,33 +467,57 @@ async function sendLicenseEmail(params: {
   const ownerName = safeString(params.ownerName) || "korisniče";
   const validUntil = formatDate(params.validUntil);
 
-  const subject = `VetAssist licenca — ${params.plan}`;
+  const subject = "VetAssist – licenca i uputstvo za instalaciju";
+
   const text = [
-    `Poštovani ${ownerName},`,
+    `Zdravo ${ownerName},`,
     ``,
-    `Vaša VetAssist pretplata je aktivna.`,
+    `Tvoja VetAssist pretplata je aktivna.`,
+    ``,
+    `LICENCA:`,
+    `================================`,
+    `${params.licenseKey}`,
+    `================================`,
+    ``,
     `Plan: ${params.plan}`,
     `Dozvoljeno uređaja: ${params.deviceLimit}`,
     `Važi do: ${validUntil}`,
     ``,
-    `Vaš license key:`,
-    `${params.licenseKey}`,
+    `Ovu licencu možeš da uneseš u VetAssist ekstenziju, a možeš je proslediti i drugim korisnicima iz svoje organizacije, u okviru limita uređaja iz kupljenog plana.`,
     ``,
-    `Dalji koraci:`,
-    `1. Instalirajte VetAssist ekstenziju.`,
-    `2. Otvorite AIRS.`,
-    `3. Unesite license key i sačuvajte licencu.`,
+    `KAKO DA KRENEŠ:`,
+    `1. Otvori stranicu za instalaciju i prve korake: ${INSTALL_URL}`,
+    `2. Instaliraj VetAssist ekstenziju`,
+    `3. Otvori ekstenziju u browseru`,
+    `4. U polje za licencu nalepi kod iznad`,
+    `5. Otvori AIRS`,
+    `6. Pokreni alat`,
+    ``,
+    `VAŽNO:`,
+    `• broj uređaja zavisi od plana`,
+    `• ako dostigneš limit, novi uređaji neće moći da se povežu`,
+    `• po potrebi uređaje možeš resetovati iz admin panela`,
+    ``,
+    `Ako nešto ne radi ili imaš pitanje: ${SUPPORT_EMAIL}`,
     ``,
     `VetAssist`,
   ].join("\n");
 
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:640px;margin:0 auto;color:#222;">
-      <h1 style="font-size:24px;">VetAssist licenca</h1>
-      <p>Poštovani ${escapeHtml(ownerName)},</p>
-      <p>Vaša VetAssist pretplata je aktivna.</p>
+    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#1f2937;line-height:1.65;">
+      <h1 style="font-size:24px;margin-bottom:16px;">VetAssist – licenca i uputstvo za instalaciju</h1>
 
-      <table style="border-collapse:collapse;margin:16px 0;">
+      <p>Zdravo ${escapeHtml(ownerName)},</p>
+      <p>Tvoja VetAssist pretplata je aktivna.</p>
+
+      <div style="margin:24px 0;padding:18px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;">
+        <div style="margin-bottom:8px;font-size:13px;font-weight:700;color:#6b7280;">LICENCA</div>
+        <div style="font-size:28px;font-weight:800;letter-spacing:1px;word-break:break-word;">
+          ${escapeHtml(params.licenseKey)}
+        </div>
+      </div>
+
+      <table style="border-collapse:collapse;margin:20px 0;">
         <tr>
           <td style="padding:6px 12px 6px 0;"><strong>Plan:</strong></td>
           <td style="padding:6px 0;">${escapeHtml(params.plan)}</td>
@@ -496,30 +532,44 @@ async function sendLicenseEmail(params: {
         </tr>
       </table>
 
-      <div style="margin:20px 0;padding:16px;background:#f6f6f6;border:1px solid #e5e5e5;border-radius:10px;">
-        <div style="margin-bottom:8px;font-weight:700;">Vaš license key</div>
-        <div style="font-size:24px;font-weight:700;letter-spacing:1px;word-break:break-word;">
-          ${escapeHtml(params.licenseKey)}
-        </div>
-      </div>
+      <p>
+        Ovu licencu možeš da uneseš u VetAssist ekstenziju, a možeš je proslediti i drugim korisnicima iz svoje organizacije, u okviru limita uređaja iz kupljenog plana.
+      </p>
 
-      <h2 style="font-size:18px;">Dalji koraci</h2>
-      <ol>
-        <li>Instalirajte VetAssist ekstenziju.</li>
-        <li>Otvorite AIRS.</li>
-        <li>Unesite license key i sačuvajte licencu.</li>
+      <h2 style="font-size:18px;margin-top:28px;">Kako da kreneš</h2>
+      <ol style="padding-left:20px;">
+        <li>Otvori stranicu za instalaciju i prve korake</li>
+        <li>Instaliraj VetAssist ekstenziju</li>
+        <li>Otvori ekstenziju u browseru</li>
+        <li>U polje za licencu nalepi kod iznad</li>
+        <li>Otvori AIRS</li>
+        <li>Pokreni alat</li>
       </ol>
 
-      <p style="margin-top:24px;">
+      <p style="margin:24px 0;">
         <a
-          href="https://vetasist.carrd.co/"
+          href="${INSTALL_URL}"
           target="_blank"
           rel="noreferrer"
-          style="display:inline-block;padding:12px 18px;border-radius:8px;text-decoration:none;border:1px solid #222;color:#222;font-weight:700;"
+          style="display:inline-block;padding:12px 18px;border-radius:10px;text-decoration:none;background:#111827;color:#ffffff;font-weight:700;"
         >
-          Otvori VetAssist sajt
+          Instalacija i prvi koraci
         </a>
       </p>
+
+      <h2 style="font-size:18px;margin-top:28px;">Važno</h2>
+      <ul style="padding-left:20px;">
+        <li>broj uređaja zavisi od plana</li>
+        <li>ako dostigneš limit, novi uređaji neće moći da se povežu</li>
+        <li>po potrebi uređaje možeš resetovati iz admin panela</li>
+      </ul>
+
+      <p style="margin-top:24px;">
+        Ako nešto ne radi ili imaš pitanje:
+        <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>
+      </p>
+
+      <p style="margin-top:28px;">VetAssist</p>
     </div>
   `;
 
@@ -545,15 +595,6 @@ async function sendLicenseEmail(params: {
   }
 
   return { ok: true, data };
-}
-
-function escapeHtml(value: string): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
 }
 
 export async function POST(req: NextRequest) {
