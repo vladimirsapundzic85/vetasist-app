@@ -115,13 +115,12 @@ export async function POST(req: Request) {
   embed: false,
   media: false,
   logo: true,
-  redirect_url: "https://app.vetasist.net/success",
-},
+  },
             checkout_data: {
               email,
             },
             product_options: {
-              redirect_url: "https://app.vetasist.net/app",
+              redirect_url: "https://app.vetasist.net/success",
               receipt_button_text: "Otvori VetAssist",
               receipt_link_url: "https://app.vetasist.net/app",
             },
