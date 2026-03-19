@@ -128,7 +128,7 @@ export default function HomePage() {
                   border: "1px solid white",
                 }}
               >
-                Otvori aplikaciju
+                Licenca i korisnici
               </a>
 
               <a
@@ -144,7 +144,7 @@ export default function HomePage() {
                   border: "1px solid rgba(255,255,255,0.45)",
                 }}
               >
-                Pogledaj cenu
+                Pogledaj planove
               </a>
             </div>
 
@@ -501,7 +501,7 @@ export default function HomePage() {
                 border: "1px solid white",
               }}
             >
-              Idi na aplikaciju
+              Licenca i korisnici
             </a>
 
             <a
@@ -517,7 +517,7 @@ export default function HomePage() {
                 border: "1px solid rgba(255,255,255,0.35)",
               }}
             >
-              Kontakt
+              Kontakt podrška
             </a>
           </div>
         </div>
@@ -559,7 +559,7 @@ export default function HomePage() {
                 marginBottom: 16,
               }}
             >
-              Na ovu adresu biće vezana pretplata i licenca.
+              Na ovu adresu stižu licenca i uputstvo za početak rada.
             </p>
 
             <input
