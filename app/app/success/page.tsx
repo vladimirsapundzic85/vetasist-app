@@ -143,7 +143,7 @@ export default function SuccessPage() {
                   border: "1px solid #d1d5db",
                 }}
               >
-                Otvori aplikaciju
+                Licenca i korisnici
               </a>
             </div>
           </div>
