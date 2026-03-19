@@ -111,28 +111,12 @@ export default function InstallPage() {
                 padding: 24,
               }}
             >
-              <h3
-                style={{
-                  marginTop: 0,
-                  marginBottom: 12,
-                  fontSize: 22,
-                  fontWeight: 800,
-                }}
-              >
+              <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 22, fontWeight: 800 }}>
                 Instalacija ekstenzije
               </h3>
 
-              <p
-                style={{
-                  marginTop: 0,
-                  color: "#4b5563",
-                  lineHeight: 1.7,
-                  fontSize: 16,
-                }}
-              >
-                Instalacioni link će uskoro biti dostupan na posebnoj stranici.
-                Do tada koristi glavno VetAssist okruženje i prati uputstvo koje
-                si dobio na email.
+              <p style={{ marginTop: 0, color: "#4b5563", lineHeight: 1.7 }}>
+                Instalacioni link će uskoro biti dostupan. Do tada koristi glavno okruženje.
               </p>
 
               <a
@@ -161,28 +145,12 @@ export default function InstallPage() {
                 padding: 24,
               }}
             >
-              <h3
-                style={{
-                  marginTop: 0,
-                  marginBottom: 12,
-                  fontSize: 22,
-                  fontWeight: 800,
-                }}
-              >
+              <h3 style={{ marginTop: 0, marginBottom: 12, fontSize: 22, fontWeight: 800 }}>
                 Podrška
               </h3>
 
-              <p
-                style={{
-                  marginTop: 0,
-                  color: "#4b5563",
-                  lineHeight: 1.7,
-                  fontSize: 16,
-                }}
-              >
-                Ako nešto ne radi, ako ne možeš da aktiviraš licencu ili nisi
-                siguran kako da kreneš, javi se i rešavamo problem korak po
-                korak.
+              <p style={{ marginTop: 0, color: "#4b5563", lineHeight: 1.7 }}>
+                Ako nešto ne radi ili ne znaš kako dalje – javi se.
               </p>
 
               <a
@@ -203,6 +171,7 @@ export default function InstallPage() {
             </div>
           </div>
 
+          {/* VAŽNO */}
           <div
             style={{
               marginTop: 24,
@@ -212,29 +181,72 @@ export default function InstallPage() {
               padding: 24,
             }}
           >
-            <h3
-              style={{
-                marginTop: 0,
-                marginBottom: 10,
-                fontSize: 22,
-                fontWeight: 800,
-              }}
-            >
+            <h3 style={{ marginTop: 0, marginBottom: 10, fontSize: 22, fontWeight: 800 }}>
               Važno
             </h3>
 
-            <p
-              style={{
-                margin: 0,
-                color: "#1e3a8a",
-                lineHeight: 1.7,
-                fontSize: 16,
-              }}
-            >
-              Licencu možeš proslediti i drugim korisnicima iz svoje
-              organizacije, ali će pristup zavisiti od limita uređaja iz plana
-              koji je kupljen.
+            <p style={{ margin: 0, color: "#1e3a8a", lineHeight: 1.7 }}>
+              Licencu možeš proslediti drugim korisnicima iz organizacije. Broj uređaja zavisi od plana.
             </p>
+          </div>
+
+          {/* FAQ */}
+          <div
+            style={{
+              marginTop: 32,
+              background: "white",
+              border: "1px solid #e5e7eb",
+              borderRadius: 18,
+              padding: 28,
+            }}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 20, fontSize: 28, fontWeight: 800 }}>
+              Česta pitanja
+            </h2>
+
+            <div style={{ display: "grid", gap: 18 }}>
+              <div>
+                <strong>Ne mogu da aktiviram licencu</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Proveri da li si kopirao licencu bez razmaka. Ako i dalje ne radi – verovatno je popunjen limit uređaja.
+                </p>
+              </div>
+
+              <div>
+                <strong>Šta znači limit uređaja?</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Svaki plan ima ograničen broj uređaja. Ako je limit popunjen, novi korisnik neće moći da se prijavi dok se ne oslobodi mesto.
+                </p>
+              </div>
+
+              <div>
+                <strong>Kako da resetujem uređaj?</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Reset se radi iz admin panela (owner). Ako nemaš pristup – javi se podršci.
+                </p>
+              </div>
+
+              <div>
+                <strong>Kako da podelim licencu kolegama?</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Samo im prosledi email koji si dobio. Oni unose isti ključ u ekstenziji.
+                </p>
+              </div>
+
+              <div>
+                <strong>Kako da otkažem pretplatu?</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Pretplata se otkazuje preko linka iz emaila ili kontaktiranjem podrške.
+                </p>
+              </div>
+
+              <div>
+                <strong>Ekstenzija ne radi na AIRS-u</strong>
+                <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
+                  Proveri da li si na pravoj stranici AIRS-a i da li je ekstenzija aktivna u browseru.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </section>
