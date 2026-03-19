@@ -584,7 +584,7 @@ export default function OwnerDashboard() {
 
   return (
     <main style={{ padding: 40, maxWidth: 1100 }}>
-      <h1>VetAssist — Owner Panel</h1>
+      <h1>VetAssist — Licenca i korisnici</h1>
 
       {email ? (
         <div style={{ marginBottom: 20 }}>
