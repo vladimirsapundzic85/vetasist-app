@@ -487,6 +487,15 @@ export async function registerOrCheckDevice(params: {
     const license_key = String(params.license_key || "").trim();
     const device_id = String(params.device_id || "").trim();
     const device_fp = String(params.device_fp || device_id).trim();
+    console.log("DEVICE INPUT:", {
+  license_key,
+  device_id,
+  device_fp,
+});
+
+if (device_fp && device_fp.startsWith("fp_")) {
+  console.log("FINGERPRINT MODE ACTIVE");
+}
 
     const context = await resolveLicenseContext(license_key);
     if (!context.ok) {
