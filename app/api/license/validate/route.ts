@@ -77,12 +77,12 @@ export async function POST(req: Request) {
           : 403;
 
       return jsonResponse(
-        {
-          ok: false,
-          reason: deviceResult.error,
-          details: deviceResult.details ?? null,
-          limit: deviceResult.limit ?? null,
-          device_count: deviceResult.deviceCount ?? null,
+  {
+    ok: false,
+    reason: deviceResult.error,
+    details: deviceResult.details ?? null,
+    device_limit: deviceResult.limit ?? null,
+    device_count: deviceResult.deviceCount ?? null,
           blocked_until: deviceResult.blockedUntil ?? null,
           reset_limit: deviceResult.resetLimit ?? null,
           reset_count: deviceResult.resetCount ?? null,
