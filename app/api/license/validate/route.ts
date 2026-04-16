@@ -30,7 +30,7 @@ export async function OPTIONS() {
 
 export async function POST(req: Request) {
   try {
-    const { license_key, device_id } = await req.json();
+    const { license_key, device_id, device_fp } = await req.json();
 
     if (!license_key) {
       return jsonResponse({ ok: false, reason: "missing_license_key" }, 400);
@@ -38,6 +38,10 @@ export async function POST(req: Request) {
 
     if (!device_id) {
       return jsonResponse({ ok: false, reason: "missing_device_id" }, 400);
+    }
+
+    if (!device_fp) {
+      return jsonResponse({ ok: false, reason: "missing_device_fp" }, 400);
     }
 
     const context = await resolveLicenseContext(license_key);
@@ -63,7 +67,7 @@ export async function POST(req: Request) {
     const deviceResult = await registerOrCheckDevice({
       license_key,
       device_id,
-      device_fp: device_id,
+      device_fp,
     });
 
     if (!deviceResult.ok) {
@@ -77,12 +81,15 @@ export async function POST(req: Request) {
           : 403;
 
       return jsonResponse(
-  {
-    ok: false,
-    reason: deviceResult.error,
-    details: deviceResult.details ?? null,
-    device_limit: deviceResult.limit ?? null,
-    device_count: deviceResult.deviceCount ?? null,
+        {
+          ok: false,
+          reason: deviceResult.error,
+          details: deviceResult.details ?? null,
+          plan: context.subscription.plan_id ?? null,
+          subscription_status: context.subscription.status ?? null,
+          valid_until: context.subscription.valid_until ?? null,
+          device_limit: deviceResult.limit ?? null,
+          device_count: deviceResult.deviceCount ?? null,
           blocked_until: deviceResult.blockedUntil ?? null,
           reset_limit: deviceResult.resetLimit ?? null,
           reset_count: deviceResult.resetCount ?? null,
@@ -97,6 +104,7 @@ export async function POST(req: Request) {
       ok: true,
       reason: "OK",
       plan: context.subscription.plan_id,
+      subscription_status: context.subscription.status ?? null,
       valid_until: context.subscription.valid_until ?? null,
       device_limit: deviceResult.limit,
       device_new: deviceResult.isNewDevice,
