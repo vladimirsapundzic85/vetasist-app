@@ -104,6 +104,14 @@ const DEVICE_PASSIVE_AFTER_DAYS = 45;
 const RESET_COOLDOWN_DAYS = 30;
 const OWNER_RESET_UNDO_MINUTES = 10;
 
+type LicenseDeviceRow = {
+  license_key: string;
+  device_id: string | null;
+  device_fp: string | null;
+  status: string | null;
+  blocked_until: string | null;
+};
+
 async function getDeviceLimitForPlan(plan: PlanId): Promise<number> {
   const normalizedPlan = String(plan || "").trim();
 
@@ -254,6 +262,222 @@ async function passivizeStaleDevices(license_key: string): Promise<void> {
   }
 }
 
+async function countActiveDevicesForLicense(license_key: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("license_devices")
+    .select("*", { count: "exact", head: true })
+    .eq("license_key", license_key)
+    .eq("status", "active");
+
+  if (error) {
+    throw new Error(`count_active_devices_failed:${error.message}`);
+  }
+
+  return count ?? 0;
+}
+
+async function findDeviceByFingerprint(
+  license_key: string,
+  device_fp: string
+): Promise<LicenseDeviceRow | null> {
+  const { data, error } = await supabase
+    .from("license_devices")
+    .select("license_key, device_id, device_fp, status, blocked_until")
+    .eq("license_key", license_key)
+    .eq("device_fp", device_fp)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`find_device_by_fingerprint_failed:${error.message}`);
+  }
+
+  return (data as LicenseDeviceRow | null) ?? null;
+}
+
+async function findDeviceByDeviceId(
+  license_key: string,
+  device_id: string
+): Promise<LicenseDeviceRow | null> {
+  const { data, error } = await supabase
+    .from("license_devices")
+    .select("license_key, device_id, device_fp, status, blocked_until")
+    .eq("license_key", license_key)
+    .eq("device_id", device_id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`find_device_by_device_id_failed:${error.message}`);
+  }
+
+  return (data as LicenseDeviceRow | null) ?? null;
+}
+
+async function updateExistingDeviceRow(params: {
+  license_key: string;
+  matchBy: "device_fp" | "device_id";
+  matchValue: string;
+  device_id: string;
+  device_fp: string;
+  nowIso: string;
+  limit: number;
+  resetLimit: number;
+  resetCount: number;
+  row: LicenseDeviceRow;
+}): Promise<DeviceRegistrationResult> {
+  const {
+    license_key,
+    matchBy,
+    matchValue,
+    device_id,
+    device_fp,
+    nowIso,
+    limit,
+    resetLimit,
+    resetCount,
+    row,
+  } = params;
+
+  const currentStatus = String(row.status || "").trim();
+  const blockedUntil = row.blocked_until ? String(row.blocked_until) : null;
+
+  if (currentStatus === "revoked") {
+    return {
+      ok: false,
+      error: "device_revoked",
+      details: "device_is_revoked",
+      limit,
+      resetLimit,
+      resetCount,
+    };
+  }
+
+  const matchColumn = matchBy === "device_fp" ? "device_fp" : "device_id";
+
+  if (currentStatus === "reset_blocked") {
+    if (blockedUntil && new Date(blockedUntil) > new Date()) {
+      return {
+        ok: false,
+        error: "device_reset_cooldown_active",
+        details: "device_is_under_reset_cooldown",
+        limit,
+        blockedUntil,
+        resetLimit,
+        resetCount,
+      };
+    }
+
+    const activeCount = await countActiveDevicesForLicense(license_key);
+    if (activeCount >= limit) {
+      return {
+        ok: false,
+        error: "device_limit_reached",
+        limit,
+        deviceCount: activeCount,
+        resetLimit,
+        resetCount,
+      };
+    }
+
+    const { error: reactivateErr } = await supabase
+      .from("license_devices")
+      .update({
+        device_id,
+        device_fp,
+        status: "active",
+        blocked_until: null,
+        last_seen: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("license_key", license_key)
+      .eq(matchColumn, matchValue);
+
+    if (reactivateErr) {
+      return {
+        ok: false,
+        error: "device_update_failed",
+        details: reactivateErr.message ?? null,
+      };
+    }
+
+    return {
+      ok: true,
+      limit,
+      isNewDevice: false,
+      deviceCount: activeCount + 1,
+    };
+  }
+
+  if (currentStatus === "passive") {
+    const activeCount = await countActiveDevicesForLicense(license_key);
+    if (activeCount >= limit) {
+      return {
+        ok: false,
+        error: "device_limit_reached",
+        limit,
+        deviceCount: activeCount,
+        resetLimit,
+        resetCount,
+      };
+    }
+
+    const { error: reactivateErr } = await supabase
+      .from("license_devices")
+      .update({
+        device_id,
+        device_fp,
+        status: "active",
+        passive_at: null,
+        last_seen: nowIso,
+        updated_at: nowIso,
+      })
+      .eq("license_key", license_key)
+      .eq(matchColumn, matchValue);
+
+    if (reactivateErr) {
+      return {
+        ok: false,
+        error: "device_update_failed",
+        details: reactivateErr.message ?? null,
+      };
+    }
+
+    return {
+      ok: true,
+      limit,
+      isNewDevice: false,
+      deviceCount: activeCount + 1,
+    };
+  }
+
+  const { error: updateErr } = await supabase
+    .from("license_devices")
+    .update({
+      device_id,
+      device_fp,
+      last_seen: nowIso,
+      updated_at: nowIso,
+    })
+    .eq("license_key", license_key)
+    .eq(matchColumn, matchValue);
+
+  if (updateErr) {
+    return {
+      ok: false,
+      error: "device_update_failed",
+      details: updateErr.message ?? null,
+    };
+  }
+
+  const activeCount = await countActiveDevicesForLicense(license_key);
+
+  return {
+    ok: true,
+    limit,
+    isNewDevice: false,
+    deviceCount: activeCount,
+  };
+}
+
 export async function registerOrCheckDevice(params: {
   license_key: string;
   device_id: string;
@@ -281,174 +505,44 @@ export async function registerOrCheckDevice(params: {
 
     await passivizeStaleDevices(license_key);
 
-    const { data: currentKeyDevice, error: currentKeyDeviceErr } = await supabase
-      .from("license_devices")
-      .select("license_key, device_id, device_fp, status, blocked_until")
-      .eq("license_key", license_key)
-      .eq("device_id", device_id)
-      .maybeSingle();
+    // 1) PRIMARNO: traži uređaj po fingerprintu
+    const currentFpDevice = await findDeviceByFingerprint(license_key, device_fp);
 
-    if (currentKeyDeviceErr) {
-      return {
-        ok: false,
-        error: "current_key_device_lookup_failed",
-        details: currentKeyDeviceErr.message ?? null,
-      };
-    }
-
-    const existsForCurrentKey = !!currentKeyDevice;
-
-    if (existsForCurrentKey) {
-      const currentStatus = String(currentKeyDevice.status || "").trim();
-      const blockedUntil = currentKeyDevice.blocked_until
-        ? String(currentKeyDevice.blocked_until)
-        : null;
-
-      if (currentStatus === "revoked") {
-        return {
-          ok: false,
-          error: "device_revoked",
-          details: "device_is_revoked",
-          limit,
-          resetLimit,
-          resetCount,
-        };
-      }
-
-      if (currentStatus === "reset_blocked") {
-        if (blockedUntil && new Date(blockedUntil) > new Date()) {
-          return {
-            ok: false,
-            error: "device_reset_cooldown_active",
-            details: "device_is_under_reset_cooldown",
-            limit,
-            blockedUntil,
-            resetLimit,
-            resetCount,
-          };
-        }
-
-        const { count: activeCountBeforeReactivation, error: activeCountErr } = await supabase
-          .from("license_devices")
-          .select("*", { count: "exact", head: true })
-          .eq("license_key", license_key)
-          .eq("status", "active");
-
-        if (activeCountErr) {
-          return {
-            ok: false,
-            error: "device_lookup_failed",
-            details: activeCountErr.message ?? null,
-          };
-        }
-
-        const activeCount = activeCountBeforeReactivation ?? 0;
-        if (activeCount >= limit) {
-          return {
-            ok: false,
-            error: "device_limit_reached",
-            limit,
-            deviceCount: activeCount,
-            resetLimit,
-            resetCount,
-          };
-        }
-
-        const { error: reactivateErr } = await supabase
-          .from("license_devices")
-          .update({
-            status: "active",
-            blocked_until: null,
-            last_seen: nowIso,
-            updated_at: nowIso,
-          })
-          .eq("license_key", license_key)
-          .eq("device_id", device_id);
-
-        if (reactivateErr) {
-          return {
-            ok: false,
-            error: "device_update_failed",
-            details: reactivateErr.message ?? null,
-          };
-        }
-
-        return {
-          ok: true,
-          limit,
-          isNewDevice: false,
-          deviceCount: activeCount + 1,
-        };
-      }
-
-      const updatePayload: {
-        last_seen: string;
-        device_fp: string;
-        updated_at: string;
-        status?: string;
-        passive_at?: null;
-      } = {
-        last_seen: nowIso,
+    if (currentFpDevice) {
+      return await updateExistingDeviceRow({
+        license_key,
+        matchBy: "device_fp",
+        matchValue: device_fp,
+        device_id,
         device_fp,
-        updated_at: nowIso,
-      };
-
-      if (currentStatus === "passive") {
-        updatePayload.status = "active";
-        updatePayload.passive_at = null;
-      }
-
-      const { error: updateErr } = await supabase
-        .from("license_devices")
-        .update(updatePayload)
-        .eq("license_key", license_key)
-        .eq("device_id", device_id);
-
-      if (updateErr) {
-        return {
-          ok: false,
-          error: "device_update_failed",
-          details: updateErr.message ?? null,
-        };
-      }
-
-      const { count: activeCount, error: activeCountErr } = await supabase
-        .from("license_devices")
-        .select("*", { count: "exact", head: true })
-        .eq("license_key", license_key)
-        .eq("status", "active");
-
-      if (activeCountErr) {
-        return {
-          ok: false,
-          error: "device_lookup_failed",
-          details: activeCountErr.message ?? null,
-        };
-      }
-
-      return {
-        ok: true,
+        nowIso,
         limit,
-        isNewDevice: false,
-        deviceCount: activeCount ?? 0,
-      };
+        resetLimit,
+        resetCount,
+        row: currentFpDevice,
+      });
     }
 
-    const { count: activeCountBeforeInsert, error: activeCountErr } = await supabase
-      .from("license_devices")
-      .select("*", { count: "exact", head: true })
-      .eq("license_key", license_key)
-      .eq("status", "active");
+    // 2) LEGACY FALLBACK: traži po device_id, pa ga migriraj na fingerprint
+    const currentIdDevice = await findDeviceByDeviceId(license_key, device_id);
 
-    if (activeCountErr) {
-      return {
-        ok: false,
-        error: "device_lookup_failed",
-        details: activeCountErr.message ?? null,
-      };
+    if (currentIdDevice) {
+      return await updateExistingDeviceRow({
+        license_key,
+        matchBy: "device_id",
+        matchValue: device_id,
+        device_id,
+        device_fp,
+        nowIso,
+        limit,
+        resetLimit,
+        resetCount,
+        row: currentIdDevice,
+      });
     }
 
-    const activeCount = activeCountBeforeInsert ?? 0;
+    // 3) NOV UREĐAJ: tek sad proveri limit i insert
+    const activeCount = await countActiveDevicesForLicense(license_key);
 
     if (activeCount >= limit) {
       return {
