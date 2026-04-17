@@ -55,9 +55,7 @@ function getToolRuntime(toolCode: string, version: string): ToolRuntimeManifest 
   if (code === "provera_telenja") {
     return {
       mode: "local_files",
-      files: [
-        `tools/provera_telenja/${ver}/script.js`,
-      ],
+      files: [`tools/provera_telenja/${ver}/script.js`],
     };
   }
 
@@ -81,6 +79,7 @@ export async function POST(req: Request) {
 
     const license_key = String(body?.license_key || "").trim();
     const device_id = String(body?.device_id || "").trim();
+    const device_fp = String(body?.device_fp || "").trim();
     const tool_code = String(body?.tool_code || body?.tool_slug || "").trim();
 
     if (!license_key) {
@@ -89,6 +88,10 @@ export async function POST(req: Request) {
 
     if (!device_id) {
       return jsonResponse({ ok: false, error: "missing_device_id" }, 400);
+    }
+
+    if (!device_fp) {
+      return jsonResponse({ ok: false, error: "missing_device_fp" }, 400);
     }
 
     if (!tool_code) {
@@ -118,7 +121,7 @@ export async function POST(req: Request) {
     const deviceResult = await registerOrCheckDevice({
       license_key,
       device_id,
-      device_fp: device_id,
+      device_fp,
     });
 
     if (!deviceResult.ok) {
@@ -206,7 +209,7 @@ export async function POST(req: Request) {
 
     return jsonResponse({
       ok: true,
-      debug_route_version: "tool_fetch_runtime_v3",
+      debug_route_version: "tool_fetch_runtime_v4_fp_fixed",
       tool: {
         code: tool.code,
         name: tool.name,
@@ -225,6 +228,7 @@ export async function POST(req: Request) {
         device_new: deviceResult.isNewDevice,
         device_count: deviceResult.deviceCount,
         storage_path: storagePath,
+        device_fp_used: device_fp,
       },
     });
   } catch (err) {
