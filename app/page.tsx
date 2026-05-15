@@ -505,7 +505,7 @@ export default function HomePage() {
             </a>
 
             <a
-              href="mailto:vladimirsapundzic@gmail.com"
+              href="mailto:support@vetasist.net"
               style={{
                 display: "inline-block",
                 padding: "14px 20px",
