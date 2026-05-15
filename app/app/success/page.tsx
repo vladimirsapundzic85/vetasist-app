@@ -179,10 +179,10 @@ export default function SuccessPage() {
               Ako email sa licencom i uputstvom nije stigao u roku od nekoliko
               minuta, javi se na{" "}
               <a
-                href="mailto:vladimirsapundzic@gmail.com"
+                href="mailto:support@vetasist.net"
                 style={{ color: "#1d4ed8", fontWeight: 700 }}
               >
-                vladimirsapundzic@gmail.com
+                support@vetasist.net
               </a>
               .
             </p>
