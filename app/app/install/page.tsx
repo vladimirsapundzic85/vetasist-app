@@ -154,7 +154,7 @@ export default function InstallPage() {
               </p>
 
               <a
-                href="mailto:vladimirsapundzic@gmail.com"
+                href="mailto:support@vetasist.net"
                 style={{
                   display: "inline-block",
                   padding: "12px 18px",
