@@ -50,7 +50,7 @@ const HANDLED_EVENTS = new Set([
 ]);
 
 const INSTALL_URL = "https://app.vetasist.net/install";
-const SUPPORT_EMAIL = "vladimirsapundzic@gmail.com";
+const SUPPORT_EMAIL = "support@vetasist.net";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
