@@ -49,7 +49,8 @@ const HANDLED_EVENTS = new Set([
   "subscription_payment_failed",
 ]);
 
-const INSTALL_URL = "https://app.vetasist.net/install";
+const CHROME_STORE_URL =
+  "https://chromewebstore.google.com/detail/vetassist/gecmdckkjjpbicpiobimifpcpbdiobni";
 const SUPPORT_EMAIL = "support@vetasist.net";
 
 function json(data: unknown, status = 200) {
@@ -469,10 +470,10 @@ async function sendLicenseEmail(params: {
 
   const subject = "VetAssist – licenca i uputstvo za instalaciju";
 
-  const text = [
-    `Zdravo ${ownerName},`,
+    const text = [
+    `Poštovani,`,
     ``,
-    `Tvoja VetAssist pretplata je aktivna.`,
+    `Vaša VetAssist pretplata je uspešno aktivirana.`,
     ``,
     `LICENCA:`,
     `================================`,
@@ -483,93 +484,120 @@ async function sendLicenseEmail(params: {
     `Dozvoljeno uređaja: ${params.deviceLimit}`,
     `Važi do: ${validUntil}`,
     ``,
-    `Ovu licencu možeš da uneseš u VetAssist ekstenziju, a možeš je proslediti i drugim korisnicima iz svoje organizacije, u okviru limita uređaja iz kupljenog plana.`,
-    ``,
-    `KAKO DA KRENEŠ:`,
-    `1. Otvori stranicu za instalaciju i prve korake: ${INSTALL_URL}`,
-    `2. Instaliraj VetAssist ekstenziju`,
-    `3. Otvori ekstenziju u browseru`,
-    `4. U polje za licencu nalepi kod iznad`,
-    `5. Otvori AIRS`,
-    `6. Pokreni alat`,
+    `INSTALACIJA I AKTIVACIJA:`,
+    `1. Otvorite Chrome Web Store link: ${CHROME_STORE_URL}`,
+    `2. Kliknite “Add to Chrome” / “Dodaj u Chrome”.`,
+    `3. Nakon instalacije otvorite AIRS sistem.`,
+    `4. Kliknite na VetAssist ikonicu u Chrome browseru.`,
+    `5. Unesite licencu iz ovog emaila.`,
+    `6. Kliknite “Sačuvaj i proveri licencu”.`,
+    `7. Kliknite “Podesi AIRS”.`,
+    `8. Nakon toga izaberite alat koji želite da koristite.`,
     ``,
     `VAŽNO:`,
-    `• broj uređaja zavisi od plana`,
-    `• ako dostigneš limit, novi uređaji neće moći da se povežu`,
-    `• po potrebi uređaje možeš resetovati iz admin panela`,
+    `• VetAssist radi u Google Chrome browseru.`,
+    `• Potrebno je da korisnik bude prijavljen u AIRS sistem.`,
+    `• Broj uređaja zavisi od kupljenog plana.`,
+    `• Licenca se može proslediti drugim korisnicima iz iste organizacije, u okviru limita uređaja.`,
     ``,
-    `Ako nešto ne radi ili imaš pitanje: ${SUPPORT_EMAIL}`,
+    `PODRŠKA:`,
+    `U slučaju problema pošaljite naziv alata, kratak opis problema i screenshot greške na: ${SUPPORT_EMAIL}`,
     ``,
     `VetAssist`,
+    `https://vetasist.net`,
   ].join("\n");
 
   const html = `
-    <div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;color:#1f2937;line-height:1.65;">
-      <h1 style="font-size:24px;margin-bottom:16px;">VetAssist – licenca i uputstvo za instalaciju</h1>
+    <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;color:#1f2937;line-height:1.65;background:#ffffff;">
+      <div style="padding:24px 0;border-bottom:1px solid #e5e7eb;margin-bottom:24px;">
+        <div style="font-size:26px;font-weight:900;color:#111827;">VetAssist</div>
+        <div style="font-size:14px;color:#6b7280;margin-top:4px;">Licenca i uputstvo za instalaciju</div>
+      </div>
 
-      <p>Zdravo ${escapeHtml(ownerName)},</p>
-      <p>Tvoja VetAssist pretplata je aktivna.</p>
+      <h1 style="font-size:24px;margin:0 0 16px;color:#111827;">Vaša VetAssist licenca je aktivirana</h1>
 
-      <div style="margin:24px 0;padding:18px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:12px;">
-        <div style="margin-bottom:8px;font-size:13px;font-weight:700;color:#6b7280;">LICENCA</div>
-        <div style="font-size:28px;font-weight:800;letter-spacing:1px;word-break:break-word;">
+      <p style="margin:0 0 16px;">Poštovani,</p>
+
+      <p style="margin:0 0 20px;">
+        Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije.
+      </p>
+
+      <div style="margin:24px 0;padding:20px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;">
+        <div style="margin-bottom:8px;font-size:13px;font-weight:800;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;">Licenca</div>
+        <div style="font-size:30px;font-weight:900;letter-spacing:1px;word-break:break-word;color:#111827;">
           ${escapeHtml(params.licenseKey)}
         </div>
       </div>
 
-      <table style="border-collapse:collapse;margin:20px 0;">
+      <table style="border-collapse:collapse;margin:20px 0;width:100%;max-width:520px;">
         <tr>
-          <td style="padding:6px 12px 6px 0;"><strong>Plan:</strong></td>
-          <td style="padding:6px 0;">${escapeHtml(params.plan)}</td>
+          <td style="padding:8px 12px 8px 0;color:#374151;"><strong>Plan:</strong></td>
+          <td style="padding:8px 0;">${escapeHtml(params.plan)}</td>
         </tr>
         <tr>
-          <td style="padding:6px 12px 6px 0;"><strong>Dozvoljeno uređaja:</strong></td>
-          <td style="padding:6px 0;">${params.deviceLimit}</td>
+          <td style="padding:8px 12px 8px 0;color:#374151;"><strong>Dozvoljeno uređaja:</strong></td>
+          <td style="padding:8px 0;">${params.deviceLimit}</td>
         </tr>
         <tr>
-          <td style="padding:6px 12px 6px 0;"><strong>Važi do:</strong></td>
-          <td style="padding:6px 0;">${escapeHtml(validUntil)}</td>
+          <td style="padding:8px 12px 8px 0;color:#374151;"><strong>Važi do:</strong></td>
+          <td style="padding:8px 0;">${escapeHtml(validUntil)}</td>
         </tr>
       </table>
 
-      <p>
-        Ovu licencu možeš da uneseš u VetAssist ekstenziju, a možeš je proslediti i drugim korisnicima iz svoje organizacije, u okviru limita uređaja iz kupljenog plana.
+      <p style="margin:20px 0;">
+        Licencu možete proslediti drugim korisnicima iz iste organizacije, u okviru limita uređaja kupljenog plana.
       </p>
 
-      <h2 style="font-size:18px;margin-top:28px;">Kako da kreneš</h2>
-      <ol style="padding-left:20px;">
-        <li>Otvori stranicu za instalaciju i prve korake</li>
-        <li>Instaliraj VetAssist ekstenziju</li>
-        <li>Otvori ekstenziju u browseru</li>
-        <li>U polje za licencu nalepi kod iznad</li>
-        <li>Otvori AIRS</li>
-        <li>Pokreni alat</li>
-      </ol>
+      <div style="margin:28px 0;padding:22px;border:1px solid #dbeafe;background:#eff6ff;border-radius:14px;">
+        <h2 style="font-size:20px;margin:0 0 14px;color:#1e3a8a;">Instalacija i aktivacija</h2>
 
-      <p style="margin:24px 0;">
-        <a
-          href="${INSTALL_URL}"
-          target="_blank"
-          rel="noreferrer"
-          style="display:inline-block;padding:12px 18px;border-radius:10px;text-decoration:none;background:#111827;color:#ffffff;font-weight:700;"
-        >
-          Instalacija i prvi koraci
-        </a>
-      </p>
+        <ol style="padding-left:22px;margin:0;color:#1f2937;">
+          <li style="margin-bottom:8px;">Kliknite na dugme <strong>Instaliraj VetAssist</strong>.</li>
+          <li style="margin-bottom:8px;">Na Chrome Web Store stranici kliknite <strong>Add to Chrome</strong> / <strong>Dodaj u Chrome</strong>.</li>
+          <li style="margin-bottom:8px;">Nakon instalacije otvorite AIRS sistem.</li>
+          <li style="margin-bottom:8px;">Kliknite na VetAssist ikonicu u Chrome browseru.</li>
+          <li style="margin-bottom:8px;">Unesite licencu iz ovog emaila.</li>
+          <li style="margin-bottom:8px;">Kliknite <strong>Sačuvaj i proveri licencu</strong>.</li>
+          <li style="margin-bottom:8px;">Kliknite <strong>Podesi AIRS</strong>.</li>
+          <li>Izaberite alat koji želite da koristite.</li>
+        </ol>
 
-      <h2 style="font-size:18px;margin-top:28px;">Važno</h2>
-      <ul style="padding-left:20px;">
-        <li>broj uređaja zavisi od plana</li>
-        <li>ako dostigneš limit, novi uređaji neće moći da se povežu</li>
-        <li>po potrebi uređaje možeš resetovati iz admin panela</li>
+        <p style="margin:22px 0 0;">
+          <a
+            href="${CHROME_STORE_URL}"
+            target="_blank"
+            rel="noreferrer"
+            style="display:inline-block;padding:13px 20px;border-radius:10px;text-decoration:none;background:#111827;color:#ffffff;font-weight:800;"
+          >
+            Instaliraj VetAssist
+          </a>
+        </p>
+      </div>
+
+      <h2 style="font-size:18px;margin:28px 0 10px;color:#111827;">Važno</h2>
+
+      <ul style="padding-left:20px;margin-top:0;">
+        <li>VetAssist radi u Google Chrome browseru.</li>
+        <li>Potrebno je da korisnik bude prijavljen u AIRS sistem.</li>
+        <li>Broj uređaja zavisi od kupljenog plana.</li>
+        <li>Ako je limit uređaja popunjen, novi uređaj neće moći da se aktivira dok se ne oslobodi mesto.</li>
       </ul>
 
-      <p style="margin-top:24px;">
-        Ako nešto ne radi ili imaš pitanje:
-        <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>
-      </p>
+      <div style="margin-top:28px;padding:18px;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;">
+        <h2 style="font-size:18px;margin:0 0 10px;color:#111827;">Podrška</h2>
+        <p style="margin:0 0 10px;">
+          U slučaju problema pošaljite naziv alata, kratak opis problema i screenshot greške.
+        </p>
+        <p style="margin:0;">
+          Kontakt:
+          <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d4ed8;font-weight:700;">${SUPPORT_EMAIL}</a>
+        </p>
+      </div>
 
-      <p style="margin-top:28px;">VetAssist</p>
+      <p style="margin-top:30px;color:#6b7280;font-size:13px;">
+        VetAssist<br />
+        <a href="https://vetasist.net" style="color:#1d4ed8;">https://vetasist.net</a>
+      </p>
     </div>
   `;
 
