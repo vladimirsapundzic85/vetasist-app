@@ -51,8 +51,8 @@ export default function InstallPage() {
               color: "rgba(255,255,255,0.92)",
             }}
           >
-            Ovde su koraci koje treba da pratiš nakon kupovine kako bi što brže
-            aktivirao VetAssist i počeo da koristiš alate.
+            Ovo su koraci koje treba da pratite nakon kupovine kako biste što brže
+            aktivirali VetAsist i počeli da koristite alate.
           </p>
         </div>
       </section>
@@ -88,11 +88,11 @@ export default function InstallPage() {
                 fontSize: 17,
               }}
             >
-              <li>Instaliraj VetAssist ekstenziju.</li>
-              <li>Otvori ekstenziju u browseru.</li>
-              <li>Unesi licencu koju si dobio na email.</li>
-              <li>Otvori AIRS.</li>
-              <li>Pokreni alat koji želiš da koristiš.</li>
+              <li>Instalirate VetAsist ekstenziju.</li>
+              <li>Otvorite ekstenziju u browseru.</li>
+              <li>Unesite licencu koju ste dobili na email.</li>
+              <li>Otvorite AIRS(veterinarsku bazu).</li>
+              <li>Pokrenite alat koji želite da koristite.</li>
             </ol>
           </div>
 
@@ -150,7 +150,7 @@ export default function InstallPage() {
               </h3>
 
               <p style={{ marginTop: 0, color: "#4b5563", lineHeight: 1.7 }}>
-                Ako nešto ne radi ili ne znaš kako dalje – javi se.
+                Ako nešto ne radi ili ne znate kako dalje – javite se.
               </p>
 
               <a
@@ -186,7 +186,7 @@ export default function InstallPage() {
             </h3>
 
             <p style={{ margin: 0, color: "#1e3a8a", lineHeight: 1.7 }}>
-              Licencu možeš proslediti drugim korisnicima iz organizacije. Broj uređaja zavisi od plana.
+              Licencu možete proslediti drugim korisnicima iz organizacije. Broj uređaja zavisi od plana.
             </p>
           </div>
 
@@ -208,7 +208,7 @@ export default function InstallPage() {
               <div>
                 <strong>Ne mogu da aktiviram licencu</strong>
                 <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-                  Proveri da li si kopirao licencu bez razmaka. Ako i dalje ne radi – verovatno je popunjen limit uređaja.
+                  Proverite da li ste kopirali licencu bez razmaka. Ako i dalje ne radi – verovatno je popunjen limit uređaja.
                 </p>
               </div>
 
@@ -222,14 +222,14 @@ export default function InstallPage() {
               <div>
                 <strong>Kako da resetujem uređaj?</strong>
                 <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-                  Instalacioni link će uskoro biti dostupan na ovoj strani. Do tada prati uputstvo iz emaila i koristi VetAssist alat nakon unosa licence.
+                  Instalacioni link će uskoro biti dostupan na ovoj strani. Do tada pratite uputstvo iz emaila i koristite VetAsist alat nakon unosa licence.
                 </p>
               </div>
 
               <div>
                 <strong>Kako da podelim licencu kolegama?</strong>
                 <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-                  Samo im prosledi email koji si dobio. Oni unose isti ključ u ekstenziji.
+                  Samo im prosledite email koji ste dobili. Oni unose isti ključ(licencu) u ekstenziji.
                 </p>
               </div>
 
@@ -243,7 +243,7 @@ export default function InstallPage() {
               <div>
                 <strong>Ekstenzija ne radi na AIRS-u</strong>
                 <p style={{ margin: "6px 0 0", color: "#4b5563" }}>
-                  Proveri da li si na pravoj stranici AIRS-a i da li je ekstenzija aktivna u browseru.
+                  Proverite da li ste na pravoj stranici AIRS-a i da li je ekstenzija aktivna u browseru.
                 </p>
               </div>
             </div>
