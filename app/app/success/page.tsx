@@ -90,7 +90,7 @@ export default function SuccessPage() {
                 fontSize: 17,
               }}
             >
-              Otvori email, kopiraj licencu i prati kratko uputstvo za
+              Otvorite email, kopirajte licencu i pratite kratko uputstvo za
               instalaciju i pokretanje VetAssist ekstenzije.
             </p>
 
@@ -103,7 +103,7 @@ export default function SuccessPage() {
                 fontSize: 15,
               }}
             >
-              Ako poruku ne vidiš odmah, proveri Spam / Promotions folder.
+              Ako poruku ne vidite odmah, proverite Spam / Promotions folder.
             </p>
 
             <div
@@ -165,7 +165,7 @@ export default function SuccessPage() {
                 color: "#1e3a8a",
               }}
             >
-              Nisi dobio email?
+              Niste dobili email?
             </h3>
 
             <p
@@ -177,7 +177,7 @@ export default function SuccessPage() {
               }}
             >
               Ako email sa licencom i uputstvom nije stigao u roku od nekoliko
-              minuta, javi se na{" "}
+              minuta, javite se na{" "}
               <a
                 href="mailto:support@vetasist.net"
                 style={{ color: "#1d4ed8", fontWeight: 700 }}
