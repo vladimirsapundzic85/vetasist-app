@@ -135,6 +135,7 @@ function formatDate(value: string | null): string {
 function extractSubscriptionPayload(body: any) {
   const attrs = body?.data?.attributes ?? {};
   const relationships = body?.data?.relationships ?? {};
+  const urls = attrs?.urls ?? {};
 
   const externalSubscriptionId = safeString(body?.data?.id);
   const providerStatus = safeString(attrs?.status).toLowerCase();
@@ -163,18 +164,19 @@ function extractSubscriptionPayload(body: any) {
   const testMode = !!attrs?.test_mode || !!body?.meta?.test_mode;
 
   return {
-    event: safeString(body?.meta?.event_name),
-    externalSubscriptionId,
-    externalCustomerId,
-    externalVariantId: Number.isFinite(externalVariantId) ? externalVariantId : null,
-    email,
-    ownerName,
-    productName,
-    providerStatus,
-    renewsAt,
-    endsAt,
-    testMode,
-  };
+  event: safeString(body?.meta?.event_name),
+  externalSubscriptionId,
+  externalCustomerId,
+  externalVariantId: Number.isFinite(externalVariantId) ? externalVariantId : null,
+  email,
+  ownerName,
+  productName,
+  providerStatus,
+  renewsAt,
+  endsAt,
+  testMode,
+  customerPortalUrl: safeString(urls?.customer_portal) || null,
+};
 }
 
 async function findCanonicalOrganizationByEmail(email: string) {
