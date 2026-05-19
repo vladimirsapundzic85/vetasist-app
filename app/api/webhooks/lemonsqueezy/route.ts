@@ -244,6 +244,121 @@ async function findOrCreateOrganization(params: {
 
   return data;
 }
+async function findAuthUserByEmail(emailRaw: string) {
+  const email = normalizeEmail(emailRaw);
+  if (!email) return null;
+
+  for (let page = 1; page <= 20; page += 1) {
+    const { data, error } = await supabase.auth.admin.listUsers({
+      page,
+      perPage: 100,
+    });
+
+    if (error) {
+      throw new Error(`auth_user_lookup_failed:${error.message}`);
+    }
+
+    const users = data?.users ?? [];
+    const found = users.find((u) => normalizeEmail(u.email) === email);
+
+    if (found) return found;
+
+    if (users.length < 100) break;
+  }
+
+  return null;
+}
+
+async function ensureAuthUserForEmail(params: {
+  email: string;
+  ownerName: string;
+}) {
+  const email = normalizeEmail(params.email);
+  const ownerName = safeString(params.ownerName) || email;
+
+  if (!email) {
+    throw new Error("missing_auth_user_email");
+  }
+
+  const existing = await findAuthUserByEmail(email);
+  if (existing) return existing;
+
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    email_confirm: true,
+    user_metadata: {
+      name: ownerName,
+    },
+  });
+
+  if (error) {
+    const message = String(error.message || "").toLowerCase();
+
+    if (
+      message.includes("already") ||
+      message.includes("registered") ||
+      message.includes("exists")
+    ) {
+      const userAfterDuplicate = await findAuthUserByEmail(email);
+      if (userAfterDuplicate) return userAfterDuplicate;
+    }
+
+    throw new Error(`auth_user_create_failed:${error.message}`);
+  }
+
+  if (!data?.user) {
+    throw new Error("auth_user_create_failed:no_user_returned");
+  }
+
+  return data.user;
+}
+
+async function ensureOwnerMembershipForEmail(params: {
+  orgId: string;
+  email: string;
+  ownerName: string;
+}) {
+  const orgId = safeString(params.orgId);
+  const email = normalizeEmail(params.email);
+
+  if (!orgId) throw new Error("missing_org_id_for_owner_membership");
+  if (!email) throw new Error("missing_email_for_owner_membership");
+
+  const user = await ensureAuthUserForEmail({
+    email,
+    ownerName: params.ownerName,
+  });
+
+  const { data: existing, error: lookupErr } = await supabase
+    .from("org_members")
+    .select("org_id, user_id, role")
+    .eq("org_id", orgId)
+    .eq("user_id", user.id)
+    .eq("role", "owner")
+    .maybeSingle();
+
+  if (lookupErr) {
+    throw new Error(`owner_membership_lookup_failed:${lookupErr.message}`);
+  }
+
+  if (existing) return existing;
+
+  const { data, error } = await supabase
+    .from("org_members")
+    .insert({
+      org_id: orgId,
+      user_id: user.id,
+      role: "owner",
+    })
+    .select("org_id, user_id, role")
+    .single();
+
+  if (error || !data) {
+    throw new Error(`owner_membership_insert_failed:${error?.message || "unknown"}`);
+  }
+
+  return data;
+}
 
 async function findExistingSubscription(params: {
   externalSubscriptionId: string;
@@ -709,6 +824,11 @@ export async function POST(req: NextRequest) {
       email: payload.email,
       ownerName: payload.ownerName,
     });
+    await ensureOwnerMembershipForEmail({
+  orgId: org.id,
+  email: payload.email,
+  ownerName: payload.ownerName,
+});
 
     const localStatus = mapProviderStatusToLocalStatus(payload.providerStatus);
     const validUntil = resolveValidUntil({
