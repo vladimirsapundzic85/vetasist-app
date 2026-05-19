@@ -503,10 +503,16 @@ async function sendLicenseEmail(params: {
     `• Broj uređaja zavisi od kupljenog plana.`,
     `• Licenca se može proslediti drugim korisnicima iz iste organizacije, u okviru limita uređaja.`,
     ``,
-    `PODRŠKA:`,
-    `U slučaju problema pošaljite naziv alata, kratak opis problema i screenshot greške na: ${SUPPORT_EMAIL}`,
-    ``,
-    `VetAssist`,
+    `UPRAVLJANJE PRETPLATOM:`,
+params.customerPortalUrl
+  ? `Pretplatu možete otkazati ili upravljati njome ovde: ${params.customerPortalUrl}`
+  : `Za otkazivanje ili upravljanje pretplatom kontaktirajte podršku: ${SUPPORT_EMAIL}`,
+`Nakon otkazivanja, pristup ostaje aktivan do kraja plaćenog perioda.`,
+``,
+`PODRŠKA:`,
+`U slučaju problema pošaljite naziv alata, kratak opis problema i screenshot greške na: ${SUPPORT_EMAIL}`,
+``,
+`VetAssist`,
     `https://vetasist.net`,
   ].join("\n");
 
@@ -719,6 +725,7 @@ export async function POST(req: NextRequest) {
           validUntil,
           licenseKey,
           testMode: payload.testMode,
+          customerPortalUrl: payload.customerPortalUrl,
         });
       }
     } else {
