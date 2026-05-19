@@ -582,6 +582,32 @@ params.customerPortalUrl
           </a>
         </p>
       </div>
+            <div style="margin-top:28px;padding:18px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;">
+        <h2 style="font-size:18px;margin:0 0 10px;color:#9a3412;">Upravljanje pretplatom</h2>
+        <p style="margin:0 0 12px;">
+          Pretplatu možete otkazati ili upravljati njome preko Lemon Squeezy korisničkog portala.
+        </p>
+        ${
+          params.customerPortalUrl
+            ? `<p style="margin:0 0 12px;">
+                <a
+                  href="${params.customerPortalUrl}"
+                  target="_blank"
+                  rel="noreferrer"
+                  style="display:inline-block;padding:11px 16px;border-radius:10px;text-decoration:none;background:#9a3412;color:#ffffff;font-weight:800;"
+                >
+                  Upravljaj pretplatom
+                </a>
+              </p>`
+            : `<p style="margin:0 0 12px;">
+                Za otkazivanje ili upravljanje pretplatom kontaktirajte podršku:
+                <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d4ed8;font-weight:700;">${SUPPORT_EMAIL}</a>
+              </p>`
+        }
+        <p style="margin:0;color:#7c2d12;">
+          Nakon otkazivanja, pristup ostaje aktivan do kraja plaćenog perioda.
+        </p>
+      </div>
 
       <h2 style="font-size:18px;margin:28px 0 10px;color:#111827;">Važno</h2>
 
