@@ -456,6 +456,7 @@ async function sendLicenseEmail(params: {
   validUntil: string | null;
   licenseKey: string;
   testMode: boolean;
+  customerPortalUrl: string | null;
 }) {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     console.warn("VetAssist: email skipped because RESEND env is missing");
