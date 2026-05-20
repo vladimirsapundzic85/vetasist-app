@@ -572,6 +572,7 @@ async function sendLicenseEmail(params: {
   licenseKey: string;
   testMode: boolean;
   customerPortalUrl: string | null;
+  emailKind: "welcome" | "renewal" | "resumed";
 }) {
   if (!RESEND_API_KEY || !RESEND_FROM_EMAIL) {
     console.warn("VetAssist: email skipped because RESEND env is missing");
@@ -586,12 +587,31 @@ async function sendLicenseEmail(params: {
   const ownerName = safeString(params.ownerName) || "korisniče";
   const validUntil = formatDate(params.validUntil);
 
-  const subject = "VetAssist – licenca i uputstvo za instalaciju";
+  const subject =
+  params.emailKind === "welcome"
+    ? "VetAssist – licenca i uputstvo za instalaciju"
+    : params.emailKind === "renewal"
+    ? "VetAssist – pretplata je uspešno produžena"
+    : "VetAssist – pretplata je ponovo aktivirana";
+    const mainTitle =
+    params.emailKind === "welcome"
+      ? "Vaša VetAssist licenca je aktivirana"
+      : params.emailKind === "renewal"
+      ? "Vaša VetAssist pretplata je produžena"
+      : "Vaša VetAssist pretplata je ponovo aktivirana";
+
+  const introText =
+    params.emailKind === "welcome"
+      ? "Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije."
+      : params.emailKind === "renewal"
+      ? "Vaša VetAssist pretplata je uspešno produžena. Licenca ostaje ista i nije potrebna ponovna instalacija ekstenzije."
+      : "Vaša VetAssist pretplata je ponovo aktivirana. Licenca ostaje ista i možete nastaviti sa korišćenjem ekstenzije.";
 
     const text = [
-    `Poštovani,`,
-    ``,
-    `Vaša VetAssist pretplata je uspešno aktivirana.`,
+    [
+  "Poštovani,",
+  "",
+  introText,
     ``,
     `LICENCA:`,
     `================================`,
@@ -638,12 +658,14 @@ params.customerPortalUrl
         <div style="font-size:14px;color:#6b7280;margin-top:4px;">Licenca i uputstvo za instalaciju</div>
       </div>
 
-      <h1 style="font-size:24px;margin:0 0 16px;color:#111827;">Vaša VetAssist licenca je aktivirana</h1>
+      <h1 style="font-size:24px;margin:0 0 16px;color:#111827;">
+  ${mainTitle}
+</h1>
 
       <p style="margin:0 0 16px;">Poštovani,</p>
 
       <p style="margin:0 0 20px;">
-        Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije.
+        ${introText}
       </p>
 
       <div style="margin:24px 0;padding:20px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;">
@@ -829,6 +851,12 @@ export async function POST(req: NextRequest) {
   email: payload.email,
   ownerName: payload.ownerName,
 });
+    const existingSubscriptionBeforeUpsert = await findExistingSubscription({
+  externalSubscriptionId: payload.externalSubscriptionId,
+  orgId: org.id,
+});
+
+const isNewSubscription = !existingSubscriptionBeforeUpsert;
 
     const localStatus = mapProviderStatusToLocalStatus(payload.providerStatus);
     const validUntil = resolveValidUntil({
@@ -859,21 +887,36 @@ export async function POST(req: NextRequest) {
         planId: planInfo.plan,
       });
 
-      if (
-        licenseKey &&
-        (payload.event === "subscription_created" || payload.event === "subscription_resumed")
-      ) {
-        emailResult = await sendLicenseEmail({
-          to: payload.email,
-          ownerName: payload.ownerName,
-          plan: planInfo.plan,
-          deviceLimit: planInfo.device_limit,
-          validUntil,
-          licenseKey,
-          testMode: payload.testMode,
-          customerPortalUrl: payload.customerPortalUrl,
-        });
-      }
+      let emailKind: "welcome" | "renewal" | "resumed" | null = null;
+
+if (payload.event === "subscription_created") {
+  emailKind = "welcome";
+}
+
+if (payload.event === "subscription_resumed") {
+  emailKind = "resumed";
+}
+
+if (
+  payload.event === "subscription_payment_success" &&
+  !isNewSubscription
+) {
+  emailKind = "renewal";
+}
+
+if (licenseKey && emailKind) {
+  emailResult = await sendLicenseEmail({
+    to: payload.email,
+    ownerName: payload.ownerName,
+    plan: planInfo.plan,
+    deviceLimit: planInfo.device_limit,
+    validUntil,
+    licenseKey,
+    testMode: payload.testMode,
+    customerPortalUrl: payload.customerPortalUrl,
+    emailKind,
+  });
+}
     } else {
       await deactivateAllLicensesForOrg(org.id);
     }
