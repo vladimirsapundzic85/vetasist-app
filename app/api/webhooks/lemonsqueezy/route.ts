@@ -728,11 +728,7 @@ async function sendLicenseEmail(params: {
             Otvori VetAssist owner panel
           </a>
         </p>
-            : `<p style="margin:0 0 12px;">
-                Za otkazivanje ili upravljanje pretplatom kontaktirajte podršku:
-                <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d4ed8;font-weight:700;">${SUPPORT_EMAIL}</a>
-              </p>`
-        }
+ 
         <p style="margin:0;color:#7c2d12;">
           Nakon otkazivanja, pristup ostaje aktivan do kraja plaćenog perioda.
         </p>
