@@ -75,23 +75,43 @@ async function requireOwnerContext(req: Request) {
 
   const ownerOrgId = String(memberships[0].org_id);
 
-  const { data: subscription, error: subErr } = await supabaseAdmin
+  const { data: subscriptions, error: subErr } = await supabaseAdmin
     .from("subscriptions")
     .select(
-      "org_id, plan_id, status, valid_until, external_subscription_id, external_provider, external_variant_id, external_customer_id, provider_status, cancel_at_period_end"
+      `
+      org_id,
+      plan_id,
+      status,
+      valid_until,
+      external_subscription_id,
+      external_provider,
+      external_variant_id,
+      external_customer_id,
+      provider_status,
+      cancel_at_period_end,
+      updated_at
+    `
     )
     .eq("org_id", ownerOrgId)
     .eq("external_provider", "lemonsqueezy")
-    .eq("status", "active")
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(10);
 
   if (subErr) {
     return { ok: false as const, status: 500, error: "subscription_lookup_failed" };
   }
 
-  if (!subscription?.external_subscription_id) {
+  if (!subscriptions || subscriptions.length === 0) {
+    return { ok: false as const, status: 404, error: "no_lemonsqueezy_subscription" };
+  }
+
+  const canonicalSubscription =
+    subscriptions.find(
+      (s) =>
+        String(s.provider_status || "").toLowerCase() !== "expired"
+    ) || subscriptions[0];
+
+  if (!canonicalSubscription?.external_subscription_id) {
     return { ok: false as const, status: 404, error: "no_lemonsqueezy_subscription" };
   }
 
@@ -99,7 +119,7 @@ async function requireOwnerContext(req: Request) {
     ok: true as const,
     user,
     org_id: ownerOrgId,
-    subscription,
+    subscription: canonicalSubscription,
   };
 }
 
@@ -116,6 +136,7 @@ async function lemonFetch(path: string, init?: RequestInit) {
   });
 
   const text = await res.text();
+
   let data: any = null;
 
   try {
@@ -170,21 +191,16 @@ export async function GET(req: Request) {
     const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`);
 
     if (!res.ok) {
-  return json(
-    {
-      ok: false,
-      error: "lemonsqueezy_fetch_failed",
-      details: extractLemonErrorDetails(data),
-      raw: data,
-      debug: {
-        subscription_id: subscriptionId,
-        lemon_api_key_present: !!LEMON_API_KEY,
-        lemon_api_key_prefix: LEMON_API_KEY ? LEMON_API_KEY.slice(0, 12) : null,
-      },
-    },
-    502
-  );
-}
+      return json(
+        {
+          ok: false,
+          error: "lemonsqueezy_fetch_failed",
+          details: extractLemonErrorDetails(data),
+          raw: data,
+        },
+        502
+      );
+    }
 
     const attrs = data?.data?.attributes ?? {};
     const urls = attrs?.urls ?? {};
@@ -196,20 +212,35 @@ export async function GET(req: Request) {
         org_id: ctx.org_id,
         external_subscription_id: subscriptionId,
         plan_id: ctx.subscription.plan_id,
-        status: attrs?.status ?? ctx.subscription.status,
-        provider_status: attrs?.status ?? ctx.subscription.provider_status ?? null,
-        valid_until: attrs?.renews_at ?? attrs?.ends_at ?? ctx.subscription.valid_until ?? null,
+
+        local_status: ctx.subscription.status ?? null,
+
+        provider_status:
+          attrs?.status ??
+          ctx.subscription.provider_status ??
+          null,
+
+        valid_until:
+          attrs?.renews_at ??
+          attrs?.ends_at ??
+          ctx.subscription.valid_until ??
+          null,
+
         cancel_at_period_end:
           typeof attrs?.cancelled === "boolean"
             ? attrs.cancelled
             : !!ctx.subscription.cancel_at_period_end,
+
         test_mode: isTestMode,
       },
+
       links: {
         customer_portal: urls?.customer_portal ?? null,
         update_payment_method: urls?.update_payment_method ?? null,
-        update_customer_portal: urls?.customer_portal_update_subscription ?? null,
+        update_customer_portal:
+          urls?.customer_portal_update_subscription ?? null,
       },
+
       available_plans: [
         { id: "basic", label: "Basic" },
         { id: "team", label: "Team" },
@@ -238,7 +269,9 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => null);
+
     const action = String(body?.action || "").trim();
+
     const subscriptionId = String(ctx.subscription.external_subscription_id);
 
     if (!action) {
@@ -260,6 +293,7 @@ export async function POST(req: Request) {
     }
 
     const currentAttrs = lemonCurrent.data?.data?.attributes ?? {};
+
     const isTestMode = !!currentAttrs?.test_mode;
 
     if (action === "cancel") {
@@ -282,8 +316,8 @@ export async function POST(req: Request) {
       return json({
         ok: true,
         action: "cancel",
-        message: "Pretplata je otkazana i važi do kraja plaćenog perioda.",
-        lemonsqueezy: data,
+        message:
+          "Pretplata je otkazana i ostaje aktivna do kraja plaćenog perioda.",
       });
     }
 
@@ -318,19 +352,23 @@ export async function POST(req: Request) {
       return json({
         ok: true,
         action: "resume",
-        message: "Pretplata je ponovo aktivirana.",
-        lemonsqueezy: data,
+        message: "Automatska pretplata je ponovo uključena.",
       });
     }
 
     if (action === "change_plan") {
-      const newPlanId = String(body?.plan_id || "").trim().toLowerCase();
+      const newPlanId = String(body?.plan_id || "")
+        .trim()
+        .toLowerCase();
 
       if (!newPlanId) {
         return json({ ok: false, error: "missing_plan_id" }, 400);
       }
 
-      if (newPlanId === String(ctx.subscription.plan_id || "").trim().toLowerCase()) {
+      if (
+        newPlanId ===
+        String(ctx.subscription.plan_id || "").trim().toLowerCase()
+      ) {
         return json({ ok: false, error: "same_plan" }, 400);
       }
 
@@ -370,8 +408,7 @@ export async function POST(req: Request) {
       return json({
         ok: true,
         action: "change_plan",
-        message: "Promena plana je poslata Lemon Squeezy-ju.",
-        lemonsqueezy: data,
+        message: "Promena plana je poslata.",
       });
     }
 
