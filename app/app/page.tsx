@@ -10,7 +10,8 @@ type Org = {
 
 type Sub = {
   plan_id: string;
-  status: string; // lokalni access status iz baze
+  status?: string | null;
+  local_status?: string | null;
   valid_until: string | null;
   provider_status?: string | null;
   cancel_at_period_end?: boolean | null;
@@ -55,11 +56,21 @@ type SubscriptionActionPlan = {
 };
 
 type SubscriptionActionState = {
-  status: string;
+  plan_id?: string | null;
+  status?: string | null;
+  local_status?: string | null;
   provider_status: string | null;
   valid_until: string | null;
   cancel_at_period_end: boolean;
 };
+
+type UiSubscriptionStatus =
+  | "active"
+  | "cancelled"
+  | "expired"
+  | "payment_failed"
+  | "paused"
+  | "unknown";
 
 export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null);
@@ -94,8 +105,52 @@ export default function OwnerDashboard() {
     [devices]
   );
 
-  const showResumeButton = !!subscriptionActionState?.cancel_at_period_end;
-  const showCancelButton = !subscriptionActionState?.cancel_at_period_end;
+  const mergedSubscription = useMemo<Sub | null>(() => {
+    if (!subscription && !subscriptionActionState) return null;
+
+    return {
+      plan_id:
+        subscriptionActionState?.plan_id ||
+        subscription?.plan_id ||
+        "",
+      status:
+        subscription?.status ||
+        subscriptionActionState?.status ||
+        subscriptionActionState?.local_status ||
+        null,
+      local_status:
+        subscriptionActionState?.local_status ||
+        subscription?.local_status ||
+        subscription?.status ||
+        null,
+      provider_status:
+        subscriptionActionState?.provider_status ||
+        subscription?.provider_status ||
+        null,
+      valid_until:
+        subscriptionActionState?.valid_until ||
+        subscription?.valid_until ||
+        null,
+      cancel_at_period_end:
+        subscriptionActionState?.cancel_at_period_end ??
+        subscription?.cancel_at_period_end ??
+        false,
+    };
+  }, [subscription, subscriptionActionState]);
+
+  const uiSubscriptionStatus = useMemo(
+    () => resolveUiSubscriptionStatus(mergedSubscription),
+    [mergedSubscription]
+  );
+
+  const showResumeButton =
+    uiSubscriptionStatus === "cancelled" ||
+    !!mergedSubscription?.cancel_at_period_end;
+
+  const showCancelButton =
+    !!mergedSubscription &&
+    uiSubscriptionStatus !== "cancelled" &&
+    uiSubscriptionStatus !== "expired";
 
   async function loadSession() {
     const { data, error } = await supabase.auth.getSession();
@@ -453,7 +508,7 @@ export default function OwnerDashboard() {
         return;
       }
 
-      if (selectedPlanId === String(subscription?.plan_id || "").trim().toLowerCase()) {
+      if (selectedPlanId === String(mergedSubscription?.plan_id || "").trim().toLowerCase()) {
         setSubscriptionActionsError("Već koristiš taj plan.");
         return;
       }
@@ -463,12 +518,12 @@ export default function OwnerDashboard() {
 
     if (action === "cancel") {
       confirmed = window.confirm(
-        "Da li sigurno želiš da otkažeš pretplatu? Pretplata će ostati aktivna do kraja plaćenog perioda."
+        "Da li sigurno želiš da otkažeš pretplatu? Pristup ostaje aktivan do kraja plaćenog perioda."
       );
     }
 
     if (action === "resume") {
-      confirmed = window.confirm("Da li želiš da nastaviš automatsku pretplatu?");
+      confirmed = window.confirm("Da li želiš da ponovo uključiš automatsku pretplatu?");
     }
 
     if (action === "change_plan") {
@@ -529,390 +584,814 @@ export default function OwnerDashboard() {
     }
   }
 
-  function formatDate(value: string | null) {
-    if (!value) return "-";
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-
-    return date.toLocaleString("sr-RS");
-  }
-
-  function shortFp(fp: string) {
-    if (!fp) return "";
-    return fp.length > 18 ? fp.slice(0, 18) + "…" : fp;
-  }
-
-  function statusLabel(status: string | null) {
-    if (status === "active") return "Active";
-    if (status === "passive") return "Inactive";
-    if (status === "reset_blocked") return "Reset (cooldown)";
-    return status ?? "-";
-  }
-
-  function errorLabel(err: string) {
-    if (err === "owner_restore_time_window_expired") return "Undo period je istekao.";
-    if (err === "owner_restore_window_expired") return "Undo period je istekao.";
-    if (err === "device_reset_cooldown_active") return "Uređaj je u cooldown periodu nakon reseta.";
-    if (err === "device_not_found") return "Uređaj nije pronađen.";
-    if (err === "device_not_reset_blocked") return "Ovaj uređaj nije u reset blokadi.";
-    if (err === "device_limit_reached") return "Dostignut je limit uređaja za ovaj plan.";
-    if (err === "no_active_license") return "Nema aktivne licence za ovu organizaciju.";
-    if (err === "forbidden") return "Nemaš owner pristup ovoj organizaciji.";
-    if (err === "unauthorized") return "Sesija je istekla. Uloguj se ponovo.";
-    if (err === "same_plan") return "Već koristiš taj plan.";
-    if (err === "missing_plan_id") return "Izaberi plan.";
-    if (err === "missing_org_id") return "Nedostaje organizacija.";
-    if (err === "unknown_plan_id") return "Nepoznat plan.";
-    if (err === "no_lemonsqueezy_subscription") return "Za ovu organizaciju nije pronađena Lemon Squeezy pretplata.";
-    if (err === "lemonsqueezy_fetch_failed") return "Ne mogu da učitam billing linkove iz Lemon Squeezy-ja.";
-    if (err === "lemonsqueezy_cancel_failed") return "Otkazivanje pretplate nije uspelo.";
-    if (err === "lemonsqueezy_resume_failed") return "Nastavak pretplate nije uspeo.";
-    if (err === "lemonsqueezy_change_plan_failed") return "Promena plana nije uspela.";
-    if (err === "subscription_lookup_failed") return "Ne mogu da pronađem pretplatu za ovu organizaciju.";
-    if (err === "membership_lookup_failed") return "Ne mogu da proverim owner pristup organizaciji.";
-    return err;
-  }
-
   if (loading) {
     return (
-      <main style={{ padding: 40 }}>
-        <h2>Loading...</h2>
+      <main style={pageStyle}>
+        <h2>Učitavam...</h2>
       </main>
     );
   }
 
   return (
-    <main style={{ padding: 40, maxWidth: 1100 }}>
-      <h1>VetAssist — Licenca i korisnici</h1>
-
-      {email ? (
-        <div style={{ marginBottom: 20 }}>
-          Ulogovan: <b>{email}</b>
-          <button onClick={logout} style={{ marginLeft: 10 }}>
-            Logout
-          </button>
-        </div>
-      ) : (
-        <div style={{ marginBottom: 20 }}>
-          Nisi ulogovan. Idi na <a href="/app/auth">/app/auth</a>
-        </div>
-      )}
-
-      {error && <p style={{ color: "red" }}>Greška: {error}</p>}
-      {message && <p style={{ color: "green" }}>{message}</p>}
-
-      <hr />
-
-      <h2>Organizacija</h2>
-      {org ? <p><b>{org.name}</b></p> : <p>Nema owner organizacije povezane sa ovim nalogom.</p>}
-
-      <hr />
-
-      <h2>Licenca</h2>
-      {license ? (
+    <main style={pageStyle}>
+      <header style={headerStyle}>
         <div>
-          <p>
-            <b>License key:</b>
-            <br />
-            <code>{license.license_key}</code>
-          </p>
-          <p>
-            <b>Aktivna:</b> {license.is_active ? "DA" : "NE"}
+          <h1 style={titleStyle}>VetAssist owner panel</h1>
+          <p style={subtitleStyle}>
+            Upravljanje licencom, pretplatom i uređajima organizacije.
           </p>
         </div>
-      ) : (
-        <p>Nema aktivne licence za ovu organizaciju.</p>
-      )}
 
-      <hr />
+        {email ? (
+          <div style={userBoxStyle}>
+            <div style={{ fontSize: 13, color: "#6b7280" }}>Ulogovan</div>
+            <div style={{ fontWeight: 800 }}>{email}</div>
+            <button onClick={logout} style={secondaryButtonStyle}>
+              Logout
+            </button>
+          </div>
+        ) : null}
+      </header>
 
-      <h2>Pretplata</h2>
-      {subscription ? (
-        <div>
-  <p><b>Status pristupa:</b> {subscription.status}</p>
-  <p>
-    <b>Status pretplate:</b>{" "}
-    {subscriptionActionState?.provider_status ||
-      subscription.provider_status ||
-      subscriptionActionState?.status ||
-      "-"}
-  </p>
-  <p><b>Plan:</b> {subscription.plan_id}</p>
-  <p>
-    <b>Valid until:</b>{" "}
-    {formatDate(subscriptionActionState?.valid_until || subscription.valid_until)}
-  </p>
-  <p>
-    <b>Otkazivanje na kraju perioda:</b>{" "}
-    {(subscriptionActionState?.cancel_at_period_end ??
-      subscription.cancel_at_period_end)
-      ? "DA"
-      : "NE"}
-  </p>
-  <p>
-    <b>Devices used:</b> {activeDevicesCount}
-    {deviceLimit !== null ? ` / ${deviceLimit}` : ""}
-  </p>
-</div>
-      ) : (
-        <p>Nema subscription zapisa za ovu organizaciju.</p>
-      )}
+      {!email ? (
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>Nisi ulogovan</h2>
+          <p>
+            Idi na <a href="/app/auth">/app/auth</a> i prijavi se magic linkom.
+          </p>
+        </section>
+      ) : null}
 
-      <div
-        style={{
-          marginTop: 20,
-          padding: 16,
-          border: "1px solid #ddd",
-          borderRadius: 8,
-          background: "#fafafa",
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>Upravljanje pretplatom</h3>
+      {error && <Alert tone="danger" title="Greška" text={error} />}
+      {message && <Alert tone="success" title="Uspešno" text={message} />}
 
-        {subscriptionActionsError && (
-          <p style={{ color: "red" }}>Greška pretplata: {subscriptionActionsError}</p>
-        )}
+      <section style={gridStyle}>
+        <div style={cardStyle}>
+          <h2 style={sectionTitleStyle}>Organizacija</h2>
+          {org ? (
+            <>
+              <p style={labelStyle}>Naziv</p>
+              <p style={valueStyle}>{org.name}</p>
+            </>
+          ) : (
+            <p>Nema owner organizacije povezane sa ovim nalogom.</p>
+          )}
+        </div>
 
-        {subscriptionActionsLoading ? (
-          <p>Učitavam billing opcije...</p>
-        ) : billingLinks ? (
-          <>
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
-                marginBottom: 16,
-              }}
-            >
-              {billingLinks.customer_portal ? (
-                <a href={billingLinks.customer_portal} target="_blank" rel="noreferrer" style={actionLinkStyle}>
-                  Otvori billing portal
-                </a>
-              ) : null}
+        <div style={cardStyle}>
+          <h2 style={sectionTitleStyle}>Licenca</h2>
+          {license ? (
+            <>
+              <p style={labelStyle}>License key</p>
+              <code style={licenseCodeStyle}>{license.license_key}</code>
 
-              {billingLinks.update_payment_method ? (
-                <a href={billingLinks.update_payment_method} target="_blank" rel="noreferrer" style={actionLinkStyle}>
-                  Promeni karticu
-                </a>
-              ) : null}
+              <p style={{ ...labelStyle, marginTop: 16 }}>Status licence</p>
+              <StatusPill
+                text={license.is_active ? "AKTIVNA" : "NEAKTIVNA"}
+                tone={license.is_active ? "green" : "red"}
+              />
+            </>
+          ) : (
+            <p>Nema aktivne licence za ovu organizaciju.</p>
+          )}
+        </div>
+      </section>
 
-              {billingLinks.update_customer_portal ? (
-                <a href={billingLinks.update_customer_portal} target="_blank" rel="noreferrer" style={actionLinkStyle}>
-                  Promeni plan u Lemon-u
-                </a>
-              ) : null}
-            </div>
-
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                flexWrap: "wrap",
-                alignItems: "center",
-                marginBottom: 16,
-              }}
-            >
-              <select
-                value={selectedPlanId}
-                onChange={(e) => setSelectedPlanId(e.target.value)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #d1d5db",
-                  minWidth: 180,
-                }}
-              >
-                <option value="">Izaberi plan</option>
-                {availablePlans.map((plan) => (
-                  <option key={plan.id} value={plan.id}>
-                    {plan.label}
-                  </option>
-                ))}
-              </select>
-
-              <button
-                onClick={() => handleSubscriptionAction("change_plan")}
-                disabled={subscriptionActionLoading === "change_plan" || !selectedPlanId}
-                style={buttonStyle}
-              >
-                {subscriptionActionLoading === "change_plan" ? "Radim..." : "Promeni plan"}
-              </button>
-
-              {showCancelButton ? (
-                <button
-                  onClick={() => handleSubscriptionAction("cancel")}
-                  disabled={subscriptionActionLoading === "cancel"}
-                  style={dangerButtonStyle}
-                >
-                  {subscriptionActionLoading === "cancel" ? "Radim..." : "Otkaži pretplatu"}
-                </button>
-              ) : null}
-
-              {showResumeButton ? (
-                <button
-                  onClick={() => handleSubscriptionAction("resume")}
-                  disabled={subscriptionActionLoading === "resume"}
-                  style={buttonStyle}
-                >
-                  {subscriptionActionLoading === "resume" ? "Radim..." : "Nastavi pretplatu"}
-                </button>
-              ) : null}
-            </div>
-
-            <p style={{ margin: 0, color: "#4b5563", lineHeight: 1.6 }}>
-              Ovde vidiš da li je licenca aktivna i do kada možeš da koristiš alat. Ako je pretplata otkazana, alat nastavlja da radi do datuma isteka licence.
+      <section style={cardStyle}>
+        <div style={sectionHeaderStyle}>
+          <div>
+            <h2 style={sectionTitleStyle}>Pretplata</h2>
+            <p style={mutedTextStyle}>
+              Status pretplate dolazi iz Lemon Squeezy-ja, a pristup se određuje prema licenci i važenju perioda.
             </p>
+          </div>
+
+          <StatusPill
+            text={subscriptionStatusTitle(uiSubscriptionStatus)}
+            tone={subscriptionStatusTone(uiSubscriptionStatus)}
+          />
+        </div>
+
+        {mergedSubscription ? (
+          <>
+            <div style={subscriptionNoticeStyle(uiSubscriptionStatus)}>
+              {subscriptionMessage(uiSubscriptionStatus, mergedSubscription)}
+            </div>
+
+            <div style={factsGridStyle}>
+              <Fact label="Plan" value={mergedSubscription.plan_id || "-"} />
+              <Fact
+                label="Status pretplate"
+                value={mergedSubscription.provider_status || "-"}
+              />
+              <Fact
+                label="Status pristupa"
+                value={mergedSubscription.local_status || mergedSubscription.status || "-"}
+              />
+              <Fact
+                label="Važi do"
+                value={formatDate(mergedSubscription.valid_until)}
+              />
+              <Fact
+                label="Otkazivanje na kraju perioda"
+                value={mergedSubscription.cancel_at_period_end ? "DA" : "NE"}
+              />
+              <Fact
+                label="Uređaji"
+                value={`${activeDevicesCount}${deviceLimit !== null ? ` / ${deviceLimit}` : ""}`}
+              />
+            </div>
           </>
         ) : (
-          <p>Nisu dostupne billing opcije za ovu pretplatu.</p>
+          <p>Nema subscription zapisa za ovu organizaciju.</p>
         )}
-      </div>
 
-      <hr />
+        <div style={billingBoxStyle}>
+          <h3 style={{ margin: "0 0 12px 0" }}>Upravljanje pretplatom</h3>
 
-      <h2>Uređaji</h2>
+          {subscriptionActionsError && (
+            <Alert tone="danger" title="Greška pretplate" text={subscriptionActionsError} />
+          )}
 
-      {devicesError && <p style={{ color: "red" }}>Greška uređaji: {devicesError}</p>}
-      {devicesLoading && <p>Učitavam uređaje...</p>}
+          {subscriptionActionsLoading ? (
+            <p>Učitavam billing opcije...</p>
+          ) : billingLinks ? (
+            <>
+              <div style={actionRowStyle}>
+                <select
+                  value={selectedPlanId}
+                  onChange={(e) => setSelectedPlanId(e.target.value)}
+                  style={selectStyle}
+                >
+                  <option value="">Izaberi plan</option>
+                  {availablePlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.label}
+                    </option>
+                  ))}
+                </select>
 
-      {!devicesLoading && devices.length === 0 ? (
-        <p>Nema registrovanih uređaja.</p>
-      ) : null}
+                <button
+                  onClick={() => handleSubscriptionAction("change_plan")}
+                  disabled={subscriptionActionLoading === "change_plan" || !selectedPlanId}
+                  style={buttonStyle}
+                >
+                  {subscriptionActionLoading === "change_plan" ? "Radim..." : "Promeni plan"}
+                </button>
 
-      {!devicesLoading && devices.length > 0 ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Device ID</th>
-                <th style={thStyle}>Fingerprint</th>
-                <th style={thStyle}>Status</th>
-                <th style={thStyle}>First seen</th>
-                <th style={thStyle}>Last seen</th>
-                <th style={thStyle}>Blocked until</th>
-                <th style={thStyle}>Reset at</th>
-                <th style={thStyle}>Akcija</th>
-              </tr>
-            </thead>
-            <tbody>
-              {devices.map((device) => {
-                const busy = actionLoadingFp === device.device_fp;
-                const canUndo = device.status === "reset_blocked";
+                {showCancelButton ? (
+                  <button
+                    onClick={() => handleSubscriptionAction("cancel")}
+                    disabled={subscriptionActionLoading === "cancel"}
+                    style={dangerButtonStyle}
+                  >
+                    {subscriptionActionLoading === "cancel" ? "Radim..." : "Otkaži pretplatu"}
+                  </button>
+                ) : null}
 
-                return (
-                  <tr key={device.device_fp}>
-                    <td style={tdStyle}>{device.device_id ?? "-"}</td>
-                    <td style={tdStyle} title={device.device_fp}>
-                      <code>{shortFp(device.device_fp)}</code>
-                    </td>
-                    <td style={tdStyle}>{statusLabel(device.status)}</td>
-                    <td style={tdStyle}>{formatDate(device.first_seen)}</td>
-                    <td style={tdStyle}>{formatDate(device.last_seen)}</td>
-                    <td style={tdStyle}>{formatDate(device.blocked_until)}</td>
-                    <td style={tdStyle}>{formatDate(device.reset_at)}</td>
-                    <td style={tdStyle}>
-                      {canUndo ? (
-                        <button onClick={() => handleUndo(device.device_fp)} disabled={busy} style={{ padding: "6px 10px" }}>
-                          {busy ? "Radim..." : "Undo reset"}
-                        </button>
-                      ) : (
-                        <button onClick={() => handleReset(device.device_fp)} disabled={busy} style={{ padding: "6px 10px" }}>
-                          {busy ? "Radim..." : "Reset"}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                {showResumeButton ? (
+                  <button
+                    onClick={() => handleSubscriptionAction("resume")}
+                    disabled={subscriptionActionLoading === "resume"}
+                    style={buttonStyle}
+                  >
+                    {subscriptionActionLoading === "resume" ? "Radim..." : "Nastavi pretplatu"}
+                  </button>
+                ) : null}
+              </div>
+
+              <div style={actionRowStyle}>
+                {billingLinks.customer_portal ? (
+                  <a
+                    href={billingLinks.customer_portal}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={actionLinkStyle}
+                  >
+                    Otvori billing portal
+                  </a>
+                ) : null}
+
+                {billingLinks.update_payment_method ? (
+                  <a
+                    href={billingLinks.update_payment_method}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={actionLinkStyle}
+                  >
+                    Promeni karticu
+                  </a>
+                ) : null}
+              </div>
+
+              <p style={mutedTextStyle}>
+                Promena plana se pokreće iz VetAssist owner panela. Billing portal služi za karticu, račune i detalje naplate.
+              </p>
+            </>
+          ) : (
+            <p>Nisu dostupne billing opcije za ovu pretplatu.</p>
+          )}
         </div>
-      ) : null}
+      </section>
 
-      <div
-        style={{
-          marginTop: 20,
-          padding: 14,
-          border: "1px solid #ddd",
-          background: "#fafafa",
-          borderRadius: 6,
-          lineHeight: 1.6,
-        }}
-      >
-        <p style={{ margin: "0 0 10px 0", fontWeight: 700 }}>
-          Objašnjenje statusa i pravila
-        </p>
+      <section style={cardStyle}>
+        <div style={sectionHeaderStyle}>
+          <div>
+            <h2 style={sectionTitleStyle}>Uređaji</h2>
+            <p style={mutedTextStyle}>
+              Aktivni uređaji zauzimaju mesta u licenci. Reset blokira uređaj i oslobađa mesto prema pravilima cooldown-a.
+            </p>
+          </div>
+          <StatusPill
+            text={`${activeDevicesCount}${deviceLimit !== null ? ` / ${deviceLimit}` : ""}`}
+            tone="blue"
+          />
+        </div>
 
-        <p style={{ margin: "0 0 8px 0" }}>
-          <b>Active</b> — uređaj trenutno zauzima jedno mesto u licenci i može da koristi alat.
-        </p>
+        {devicesError && <Alert tone="danger" title="Greška uređaji" text={devicesError} />}
+        {devicesLoading && <p>Učitavam uređaje...</p>}
 
-        <p style={{ margin: "0 0 8px 0" }}>
-          <b>Inactive</b> — uređaj nije korišćen duže od 45 dana i njegovo mesto je automatski oslobođeno za novi uređaj.
-        </p>
+        {!devicesLoading && devices.length === 0 ? (
+          <p>Nema registrovanih uređaja.</p>
+        ) : null}
 
-        <p style={{ margin: "0 0 8px 0" }}>
-          <b>Reset (cooldown)</b> — uređaj je ručno resetovan i privremeno blokiran. U tom periodu ne može ponovo da se aktivira pod istim identitetom.
-        </p>
+        {!devicesLoading && devices.length > 0 ? (
+          <div style={{ overflowX: "auto" }}>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>Device ID</th>
+                  <th style={thStyle}>Fingerprint</th>
+                  <th style={thStyle}>Status</th>
+                  <th style={thStyle}>First seen</th>
+                  <th style={thStyle}>Last seen</th>
+                  <th style={thStyle}>Blocked until</th>
+                  <th style={thStyle}>Reset at</th>
+                  <th style={thStyle}>Akcija</th>
+                </tr>
+              </thead>
+              <tbody>
+                {devices.map((device) => {
+                  const busy = actionLoadingFp === device.device_fp;
+                  const canUndo = device.status === "reset_blocked";
 
-        <p style={{ margin: "0 0 8px 0" }}>
-          <b>Reset at</b> — vreme poslednjeg resetovanja uređaja.
-        </p>
+                  return (
+                    <tr key={device.device_fp}>
+                      <td style={tdStyle}>{device.device_id ?? "-"}</td>
+                      <td style={tdStyle} title={device.device_fp}>
+                        <code>{shortFp(device.device_fp)}</code>
+                      </td>
+                      <td style={tdStyle}>
+                        <StatusPill
+                          text={statusLabel(device.status)}
+                          tone={deviceStatusTone(device.status)}
+                        />
+                      </td>
+                      <td style={tdStyle}>{formatDate(device.first_seen)}</td>
+                      <td style={tdStyle}>{formatDate(device.last_seen)}</td>
+                      <td style={tdStyle}>{formatDate(device.blocked_until)}</td>
+                      <td style={tdStyle}>{formatDate(device.reset_at)}</td>
+                      <td style={tdStyle}>
+                        {canUndo ? (
+                          <button
+                            onClick={() => handleUndo(device.device_fp)}
+                            disabled={busy}
+                            style={smallButtonStyle}
+                          >
+                            {busy ? "Radim..." : "Undo reset"}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleReset(device.device_fp)}
+                            disabled={busy}
+                            style={smallButtonStyle}
+                          >
+                            {busy ? "Radim..." : "Reset"}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
 
-        <p style={{ margin: "0 0 8px 0" }}>
-          <b>Blocked until</b> — datum do kog traje blokada nakon reseta.
-        </p>
-
-        <p style={{ margin: 0 }}>
-          <b>Undo reset</b> — moguće je samo kratko nakon reseta, kao zaštita od slučajnog klika i sprečavanje zloupotrebe rotacije uređaja.
-        </p>
-      </div>
+        <div style={infoBoxStyle}>
+          <p style={{ margin: "0 0 10px 0", fontWeight: 800 }}>
+            Objašnjenje statusa uređaja
+          </p>
+          <p style={explainTextStyle}>
+            <b>Active</b> — uređaj trenutno zauzima jedno mesto u licenci.
+          </p>
+          <p style={explainTextStyle}>
+            <b>Inactive</b> — uređaj nije korišćen duže od 45 dana i mesto je oslobođeno.
+          </p>
+          <p style={explainTextStyle}>
+            <b>Reset cooldown</b> — uređaj je ručno resetovan i privremeno blokiran.
+          </p>
+          <p style={{ ...explainTextStyle, marginBottom: 0 }}>
+            <b>Undo reset</b> — moguće je kratko nakon reseta kao zaštita od slučajnog klika.
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
 
-const thStyle: React.CSSProperties = {
-  textAlign: "left",
-  borderBottom: "1px solid #ddd",
-  padding: 8,
-  background: "#f7f7f7",
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={factStyle}>
+      <div style={labelStyle}>{label}</div>
+      <div style={valueStyle}>{value}</div>
+    </div>
+  );
+}
+
+function Alert({
+  tone,
+  title,
+  text,
+}: {
+  tone: "success" | "danger" | "info";
+  title: string;
+  text: string;
+}) {
+  const style =
+    tone === "success"
+      ? alertSuccessStyle
+      : tone === "danger"
+      ? alertDangerStyle
+      : alertInfoStyle;
+
+  return (
+    <div style={style}>
+      <b>{title}:</b> {text}
+    </div>
+  );
+}
+
+function StatusPill({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "green" | "red" | "yellow" | "blue" | "gray";
+}) {
+  return <span style={pillStyle(tone)}>{text}</span>;
+}
+
+function resolveUiSubscriptionStatus(sub: Sub | null): UiSubscriptionStatus {
+  if (!sub) return "unknown";
+
+  const providerStatus = String(sub.provider_status || sub.status || "")
+    .trim()
+    .toLowerCase();
+
+  if (providerStatus === "cancelled" || sub.cancel_at_period_end) return "cancelled";
+  if (providerStatus === "expired") return "expired";
+  if (providerStatus === "past_due" || providerStatus === "unpaid" || providerStatus === "payment_failed") {
+    return "payment_failed";
+  }
+  if (providerStatus === "paused") return "paused";
+  if (providerStatus === "active") return "active";
+
+  return "unknown";
+}
+
+function subscriptionStatusTitle(status: UiSubscriptionStatus) {
+  if (status === "active") return "ACTIVE";
+  if (status === "cancelled") return "CANCELLED";
+  if (status === "expired") return "EXPIRED";
+  if (status === "payment_failed") return "PAYMENT FAILED";
+  if (status === "paused") return "PAUSED";
+  return "UNKNOWN";
+}
+
+function subscriptionStatusTone(status: UiSubscriptionStatus): "green" | "red" | "yellow" | "blue" | "gray" {
+  if (status === "active") return "green";
+  if (status === "cancelled") return "yellow";
+  if (status === "expired") return "red";
+  if (status === "payment_failed") return "red";
+  if (status === "paused") return "yellow";
+  return "gray";
+}
+
+function subscriptionMessage(status: UiSubscriptionStatus, sub: Sub) {
+  const date = formatDate(sub.valid_until);
+
+  if (status === "active") {
+    return `Pretplata je aktivna. Sledeći obračunski period ili važenje je do: ${date}.`;
+  }
+
+  if (status === "cancelled") {
+    return `Pretplata je otkazana, ali pristup ostaje aktivan do kraja plaćenog perioda: ${date}.`;
+  }
+
+  if (status === "expired") {
+    return `Pretplata je istekla. Pristup može biti blokiran ako nema aktivne licence.`;
+  }
+
+  if (status === "payment_failed") {
+    return `Plaćanje nije uspelo. Korisnik treba da ažurira karticu ili proveri naplatu.`;
+  }
+
+  if (status === "paused") {
+    return `Pretplata je pauzirana. Proveriti status naplate pre daljeg korišćenja.`;
+  }
+
+  return `Status pretplate nije jasno prepoznat. Proveriti Lemon Squeezy i subscriptions tabelu.`;
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleString("sr-RS");
+}
+
+function shortFp(fp: string) {
+  if (!fp) return "";
+  return fp.length > 18 ? fp.slice(0, 18) + "…" : fp;
+}
+
+function statusLabel(status: string | null) {
+  if (status === "active") return "Active";
+  if (status === "passive") return "Inactive";
+  if (status === "reset_blocked") return "Reset cooldown";
+  return status ?? "-";
+}
+
+function deviceStatusTone(status: string | null): "green" | "red" | "yellow" | "blue" | "gray" {
+  if (status === "active") return "green";
+  if (status === "passive") return "gray";
+  if (status === "reset_blocked") return "yellow";
+  return "gray";
+}
+
+function errorLabel(err: string) {
+  if (err === "owner_restore_time_window_expired") return "Undo period je istekao.";
+  if (err === "owner_restore_window_expired") return "Undo period je istekao.";
+  if (err === "device_reset_cooldown_active") return "Uređaj je u cooldown periodu nakon reseta.";
+  if (err === "device_not_found") return "Uređaj nije pronađen.";
+  if (err === "device_not_reset_blocked") return "Ovaj uređaj nije u reset blokadi.";
+  if (err === "device_limit_reached") return "Dostignut je limit uređaja za ovaj plan.";
+  if (err === "no_active_license") return "Nema aktivne licence za ovu organizaciju.";
+  if (err === "forbidden") return "Nemaš owner pristup ovoj organizaciji.";
+  if (err === "unauthorized") return "Sesija je istekla. Uloguj se ponovo.";
+  if (err === "same_plan") return "Već koristiš taj plan.";
+  if (err === "missing_plan_id") return "Izaberi plan.";
+  if (err === "missing_org_id") return "Nedostaje organizacija.";
+  if (err === "unknown_plan_id") return "Nepoznat plan.";
+  if (err === "no_lemonsqueezy_subscription") return "Za ovu organizaciju nije pronađena Lemon Squeezy pretplata.";
+  if (err === "lemonsqueezy_fetch_failed") return "Ne mogu da učitam billing linkove iz Lemon Squeezy-ja.";
+  if (err === "lemonsqueezy_cancel_failed") return "Otkazivanje pretplate nije uspelo.";
+  if (err === "lemonsqueezy_resume_failed") return "Nastavak pretplate nije uspeo.";
+  if (err === "lemonsqueezy_change_plan_failed") return "Promena plana nije uspela.";
+  if (err === "subscription_lookup_failed") return "Ne mogu da pronađem pretplatu za ovu organizaciju.";
+  if (err === "membership_lookup_failed") return "Ne mogu da proverim owner pristup organizaciji.";
+  if (err === "multiple_owner_orgs_detected") return "Pronađeno je više owner organizacija za isti nalog.";
+  return err;
+}
+
+const pageStyle: React.CSSProperties = {
+  padding: 32,
+  maxWidth: 1180,
+  margin: "0 auto",
+  color: "#111827",
+  fontFamily:
+    'Arial, "Helvetica Neue", Helvetica, sans-serif',
 };
 
-const tdStyle: React.CSSProperties = {
-  borderBottom: "1px solid #eee",
-  padding: 8,
-  verticalAlign: "top",
+const headerStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 20,
+  alignItems: "flex-start",
+  marginBottom: 24,
+};
+
+const titleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 32,
+  letterSpacing: "-0.03em",
+};
+
+const subtitleStyle: React.CSSProperties = {
+  margin: "8px 0 0 0",
+  color: "#6b7280",
+  fontSize: 15,
+};
+
+const userBoxStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 14,
+  padding: 14,
+  minWidth: 260,
+  background: "#ffffff",
+};
+
+const gridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gap: 16,
+  marginBottom: 16,
+};
+
+const cardStyle: React.CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  padding: 20,
+  background: "#ffffff",
+  marginBottom: 16,
+  boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+};
+
+const sectionHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  alignItems: "flex-start",
+  marginBottom: 16,
+};
+
+const sectionTitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 20,
+};
+
+const mutedTextStyle: React.CSSProperties = {
+  margin: "6px 0 0 0",
+  color: "#6b7280",
+  lineHeight: 1.5,
+};
+
+const labelStyle: React.CSSProperties = {
+  margin: 0,
+  color: "#6b7280",
+  fontSize: 13,
+  fontWeight: 700,
+  textTransform: "uppercase",
+  letterSpacing: ".04em",
+};
+
+const valueStyle: React.CSSProperties = {
+  margin: "6px 0 0 0",
+  fontSize: 18,
+  fontWeight: 800,
+};
+
+const licenseCodeStyle: React.CSSProperties = {
+  display: "inline-block",
+  marginTop: 8,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#f3f4f6",
+  border: "1px solid #e5e7eb",
+  fontWeight: 800,
+  wordBreak: "break-word",
+};
+
+const factsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 12,
+  marginTop: 16,
+};
+
+const factStyle: React.CSSProperties = {
+  padding: 14,
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  background: "#f9fafb",
+};
+
+const billingBoxStyle: React.CSSProperties = {
+  marginTop: 20,
+  padding: 16,
+  border: "1px solid #e5e7eb",
+  borderRadius: 14,
+  background: "#f9fafb",
+};
+
+const actionRowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginBottom: 14,
+};
+
+const selectStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  minWidth: 190,
+  background: "#ffffff",
 };
 
 const buttonStyle: React.CSSProperties = {
   padding: "10px 14px",
-  borderRadius: 8,
+  borderRadius: 10,
   border: "1px solid #111827",
   background: "#111827",
   color: "white",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const secondaryButtonStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 12px",
+  borderRadius: 10,
+  border: "1px solid #d1d5db",
+  background: "#ffffff",
+  color: "#111827",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const smallButtonStyle: React.CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 8,
+  border: "1px solid #d1d5db",
+  background: "#ffffff",
+  color: "#111827",
   fontWeight: 700,
   cursor: "pointer",
 };
 
 const dangerButtonStyle: React.CSSProperties = {
   padding: "10px 14px",
-  borderRadius: 8,
+  borderRadius: 10,
   border: "1px solid #b91c1c",
   background: "#b91c1c",
   color: "white",
-  fontWeight: 700,
+  fontWeight: 800,
   cursor: "pointer",
 };
 
 const actionLinkStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
-  borderRadius: 8,
+  borderRadius: 10,
   textDecoration: "none",
   border: "1px solid #d1d5db",
   background: "white",
   color: "#111827",
-  fontWeight: 700,
+  fontWeight: 800,
 };
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  marginTop: 12,
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  borderBottom: "1px solid #e5e7eb",
+  padding: 10,
+  background: "#f9fafb",
+  color: "#374151",
+  fontSize: 13,
+};
+
+const tdStyle: React.CSSProperties = {
+  borderBottom: "1px solid #f3f4f6",
+  padding: 10,
+  verticalAlign: "top",
+  fontSize: 14,
+};
+
+const infoBoxStyle: React.CSSProperties = {
+  marginTop: 20,
+  padding: 16,
+  border: "1px solid #e5e7eb",
+  background: "#f9fafb",
+  borderRadius: 14,
+  lineHeight: 1.6,
+};
+
+const explainTextStyle: React.CSSProperties = {
+  margin: "0 0 8px 0",
+  color: "#374151",
+};
+
+const alertSuccessStyle: React.CSSProperties = {
+  marginBottom: 16,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px solid #bbf7d0",
+  background: "#f0fdf4",
+  color: "#166534",
+};
+
+const alertDangerStyle: React.CSSProperties = {
+  marginBottom: 16,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px solid #fecaca",
+  background: "#fef2f2",
+  color: "#991b1b",
+};
+
+const alertInfoStyle: React.CSSProperties = {
+  marginBottom: 16,
+  padding: 14,
+  borderRadius: 12,
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e40af",
+};
+
+function pillStyle(tone: "green" | "red" | "yellow" | "blue" | "gray"): React.CSSProperties {
+  const colors = {
+    green: {
+      background: "#dcfce7",
+      border: "#86efac",
+      color: "#166534",
+    },
+    red: {
+      background: "#fee2e2",
+      border: "#fecaca",
+      color: "#991b1b",
+    },
+    yellow: {
+      background: "#fef3c7",
+      border: "#fde68a",
+      color: "#92400e",
+    },
+    blue: {
+      background: "#dbeafe",
+      border: "#bfdbfe",
+      color: "#1e40af",
+    },
+    gray: {
+      background: "#f3f4f6",
+      border: "#e5e7eb",
+      color: "#374151",
+    },
+  }[tone];
+
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: `1px solid ${colors.border}`,
+    background: colors.background,
+    color: colors.color,
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: ".04em",
+    whiteSpace: "nowrap",
+  };
+}
+
+function subscriptionNoticeStyle(status: UiSubscriptionStatus): React.CSSProperties {
+  const base: React.CSSProperties = {
+    padding: 14,
+    borderRadius: 12,
+    lineHeight: 1.55,
+    fontWeight: 700,
+  };
+
+  if (status === "active") {
+    return {
+      ...base,
+      background: "#f0fdf4",
+      border: "1px solid #bbf7d0",
+      color: "#166534",
+    };
+  }
+
+  if (status === "cancelled") {
+    return {
+      ...base,
+      background: "#fffbeb",
+      border: "1px solid #fde68a",
+      color: "#92400e",
+    };
+  }
+
+  if (status === "expired" || status === "payment_failed") {
+    return {
+      ...base,
+      background: "#fef2f2",
+      border: "1px solid #fecaca",
+      color: "#991b1b",
+    };
+  }
+
+  return {
+    ...base,
+    background: "#f3f4f6",
+    border: "1px solid #e5e7eb",
+    color: "#374151",
+  };
+}
