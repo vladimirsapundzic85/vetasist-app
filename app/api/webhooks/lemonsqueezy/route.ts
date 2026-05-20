@@ -52,6 +52,7 @@ const HANDLED_EVENTS = new Set([
 const CHROME_STORE_URL =
   "https://chromewebstore.google.com/detail/vetassist/gecmdckkjjpbicpiobimifpcpbdiobni";
 const SUPPORT_EMAIL = "support@vetasist.net";
+const OWNER_PANEL_URL = "https://app.vetasist.net/app";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -588,24 +589,18 @@ async function sendLicenseEmail(params: {
   const validUntil = formatDate(params.validUntil);
 
   const subject =
-  params.emailKind === "welcome"
-    ? "VetAssist – licenca i uputstvo za instalaciju"
-    : params.emailKind === "renewal"
+  params.emailKind === "renewal"
     ? "VetAssist – pretplata je uspešno produžena"
-    : "VetAssist – pretplata je ponovo aktivirana";
+    : "VetAssist – licenca i uputstvo za instalaciju";
     const mainTitle =
-    params.emailKind === "welcome"
-      ? "Vaša VetAssist licenca je aktivirana"
-      : params.emailKind === "renewal"
-      ? "Vaša VetAssist pretplata je produžena"
-      : "Vaša VetAssist pretplata je ponovo aktivirana";
+  params.emailKind === "renewal"
+    ? "Vaša VetAssist pretplata je produžena"
+    : "Vaša VetAssist licenca je aktivirana";
 
   const introText =
-    params.emailKind === "welcome"
-      ? "Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije."
-      : params.emailKind === "renewal"
-      ? "Vaša VetAssist pretplata je uspešno produžena. Licenca ostaje ista i nije potrebna ponovna instalacija ekstenzije."
-      : "Vaša VetAssist pretplata je ponovo aktivirana. Licenca ostaje ista i možete nastaviti sa korišćenjem ekstenzije.";
+  params.emailKind === "renewal"
+    ? "Vaša VetAssist pretplata je uspešno produžena. Licenca ostaje ista i nije potrebna ponovna instalacija ekstenzije."
+    : "Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije.";
 
     const text = [
   "Poštovani,",
@@ -721,20 +716,18 @@ async function sendLicenseEmail(params: {
             <div style="margin-top:28px;padding:18px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;">
         <h2 style="font-size:18px;margin:0 0 10px;color:#9a3412;">Upravljanje pretplatom</h2>
         <p style="margin:0 0 12px;">
-          Pretplatu možete otkazati ili upravljati njome preko Lemon Squeezy korisničkog portala.
+          Pretplatu, licencu i uređaje možete pregledati i upravljati njima u VetAssist owner panelu. Iz owner panela možete otvoriti i Lemon Squeezy billing portal za karticu, račune i podešavanja naplate.
         </p>
-        ${
-          params.customerPortalUrl
-            ? `<p style="margin:0 0 12px;">
-                <a
-                  href="${params.customerPortalUrl}"
-                  target="_blank"
-                  rel="noreferrer"
-                  style="display:inline-block;padding:11px 16px;border-radius:10px;text-decoration:none;background:#9a3412;color:#ffffff;font-weight:800;"
-                >
-                  Upravljaj pretplatom
-                </a>
-              </p>`
+        <p style="margin:0 0 12px;">
+          <a
+            href="${OWNER_PANEL_URL}"
+            target="_blank"
+            rel="noreferrer"
+            style="display:inline-block;padding:11px 16px;border-radius:10px;text-decoration:none;background:#9a3412;color:#ffffff;font-weight:800;"
+          >
+            Otvori VetAssist owner panel
+          </a>
+        </p>
             : `<p style="margin:0 0 12px;">
                 Za otkazivanje ili upravljanje pretplatom kontaktirajte podršku:
                 <a href="mailto:${SUPPORT_EMAIL}" style="color:#1d4ed8;font-weight:700;">${SUPPORT_EMAIL}</a>
