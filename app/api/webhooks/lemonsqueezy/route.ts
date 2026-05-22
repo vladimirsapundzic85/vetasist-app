@@ -422,7 +422,6 @@ async function upsertSubscription(params: {
     external_customer_id: params.externalCustomerId,
     external_variant_id: params.externalVariantId,
     provider_status: params.providerStatus || null,
-    scheduled_plan_id: null,
     cancel_at_period_end: params.cancelAtPeriodEnd,
     last_webhook_event: params.event,
     last_webhook_at: new Date().toISOString(),
