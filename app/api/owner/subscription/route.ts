@@ -9,7 +9,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const LEMON_API_KEY = process.env.LEMON_SQUEEZY_API_KEY!;
+const LEMON_API_KEY_LIVE = process.env.LEMON_API_KEY_LIVE!;
+const LEMON_API_KEY_TEST = process.env.LEMON_API_KEY_TEST!;
 
 type PlanId = "basic" | "team" | "pro" | "exclusive";
 
@@ -33,6 +34,18 @@ const PLAN_TO_VARIANT_ID_TEST: Record<PlanId, number> = {
   pro: 1413318,
   exclusive: 1689126,
 };
+const TEST_VARIANT_IDS = Object.values(PLAN_TO_VARIANT_ID_TEST);
+
+function resolveLemonApiKey(isTestMode: boolean): string {
+  return isTestMode
+    ? LEMON_API_KEY_TEST
+    : LEMON_API_KEY_LIVE;
+}
+
+function isTestVariant(variantId: unknown): boolean {
+  const num = Number(variantId || 0);
+  return TEST_VARIANT_IDS.includes(num);
+}
 
 function getAuthClient(req: Request) {
   const authHeader = req.headers.get("authorization") || "";
@@ -172,13 +185,17 @@ async function requireOwnerContext(req: Request) {
   };
 }
 
-async function lemonFetch(path: string, init?: RequestInit) {
+async function lemonFetch(
+  path: string,
+  apiKey: string,
+  init?: RequestInit
+) {
   const res = await fetch(`https://api.lemonsqueezy.com${path}`, {
     ...init,
     headers: {
       Accept: "application/vnd.api+json",
       "Content-Type": "application/vnd.api+json",
-      Authorization: `Bearer ${LEMON_API_KEY}`,
+      Authorization: `Bearer ${apiKey}`,
       ...(init?.headers || {}),
     },
     cache: "no-store",
@@ -207,7 +224,14 @@ export async function GET(req: Request) {
 
     const subscriptionId = String(ctx.subscription.external_subscription_id);
 
-    const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`);
+const lemonApiKey = resolveLemonApiKey(
+  isTestVariant(ctx.subscription.external_variant_id)
+);
+
+const { res, data } = await lemonFetch(
+  `/v1/subscriptions/${subscriptionId}`,
+  lemonApiKey
+);
 
     if (!res.ok) {
       return json(
@@ -289,7 +313,14 @@ export async function POST(req: Request) {
       return json({ ok: false, error: "missing_action" }, 400);
     }
 
-    const lemonCurrent = await lemonFetch(`/v1/subscriptions/${subscriptionId}`);
+    const lemonApiKey = resolveLemonApiKey(
+  isTestVariant(ctx.subscription.external_variant_id)
+);
+
+const lemonCurrent = await lemonFetch(
+  `/v1/subscriptions/${subscriptionId}`,
+  lemonApiKey
+);
 
     if (!lemonCurrent.res.ok) {
       return json(
@@ -307,9 +338,13 @@ export async function POST(req: Request) {
     const isTestMode = !!currentAttrs?.test_mode;
 
     if (action === "cancel") {
-      const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`, {
-        method: "DELETE",
-      });
+      const { res, data } = await lemonFetch(
+  `/v1/subscriptions/${subscriptionId}`,
+  lemonApiKey,
+  {
+    method: "DELETE",
+  }
+);
 
       if (!res.ok) {
         return json(
@@ -342,10 +377,14 @@ export async function POST(req: Request) {
         },
       };
 
-      const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      const { res, data } = await lemonFetch(
+  `/v1/subscriptions/${subscriptionId}`,
+  lemonApiKey,
+  {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }
+);
 
       if (!res.ok) {
         return json(
@@ -467,12 +506,13 @@ export async function POST(req: Request) {
       };
 
       const { res, data } = await lemonFetch(
-        `/v1/subscriptions/${subscriptionId}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify(payload),
-        }
-      );
+  `/v1/subscriptions/${subscriptionId}`,
+  lemonApiKey,
+  {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  }
+);
 
       if (!res.ok) {
         return json(
