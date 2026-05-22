@@ -15,6 +15,8 @@ type Sub = {
   valid_until: string | null;
   provider_status?: string | null;
   cancel_at_period_end?: boolean | null;
+  scheduled_plan_id?: string | null;
+  scheduled_plan_change_at?: string | null;
 };
 
 type License = {
@@ -62,6 +64,8 @@ type SubscriptionActionState = {
   provider_status: string | null;
   valid_until: string | null;
   cancel_at_period_end: boolean;
+  scheduled_plan_id?: string | null;
+  scheduled_plan_change_at?: string | null;
 };
 
 type UiSubscriptionStatus =
@@ -71,6 +75,12 @@ type UiSubscriptionStatus =
   | "payment_failed"
   | "paused"
   | "unknown";
+
+type SubscriptionAction =
+  | "cancel"
+  | "resume"
+  | "change_plan"
+  | "cancel_scheduled_downgrade";
 
 export default function OwnerDashboard() {
   const [email, setEmail] = useState<string | null>(null);
@@ -93,7 +103,7 @@ export default function OwnerDashboard() {
   const [subscriptionActionsLoading, setSubscriptionActionsLoading] = useState(false);
   const [actionLoadingFp, setActionLoadingFp] = useState<string | null>(null);
   const [subscriptionActionLoading, setSubscriptionActionLoading] =
-    useState<string | null>(null);
+    useState<SubscriptionAction | null>(null);
 
   const [error, setError] = useState<string | null>(null);
   const [devicesError, setDevicesError] = useState<string | null>(null);
@@ -135,6 +145,14 @@ export default function OwnerDashboard() {
         subscriptionActionState?.cancel_at_period_end ??
         subscription?.cancel_at_period_end ??
         false,
+      scheduled_plan_id:
+        subscriptionActionState?.scheduled_plan_id ||
+        subscription?.scheduled_plan_id ||
+        null,
+      scheduled_plan_change_at:
+        subscriptionActionState?.scheduled_plan_change_at ||
+        subscription?.scheduled_plan_change_at ||
+        null,
     };
   }, [subscription, subscriptionActionState]);
 
@@ -151,6 +169,8 @@ export default function OwnerDashboard() {
     !!mergedSubscription &&
     uiSubscriptionStatus !== "cancelled" &&
     uiSubscriptionStatus !== "expired";
+
+  const hasScheduledDowngrade = !!mergedSubscription?.scheduled_plan_id;
 
   async function loadSession() {
     const { data, error } = await supabase.auth.getSession();
@@ -221,7 +241,9 @@ export default function OwnerDashboard() {
   async function loadSubscription(orgId: string) {
     const { data, error } = await supabase
       .from("subscriptions")
-      .select("plan_id,status,valid_until,provider_status,cancel_at_period_end")
+      .select(
+        "plan_id,status,valid_until,provider_status,cancel_at_period_end,scheduled_plan_id,scheduled_plan_change_at"
+      )
       .eq("org_id", orgId)
       .maybeSingle();
 
@@ -497,9 +519,7 @@ export default function OwnerDashboard() {
     }
   }
 
-  async function handleSubscriptionAction(
-    action: "cancel" | "resume" | "change_plan"
-  ) {
+  async function handleSubscriptionAction(action: SubscriptionAction) {
     if (!accessToken || !org?.id) return;
 
     if (action === "change_plan") {
@@ -524,6 +544,10 @@ export default function OwnerDashboard() {
 
     if (action === "resume") {
       confirmed = window.confirm("Da li želiš da ponovo uključiš automatsku pretplatu?");
+    }
+
+    if (action === "cancel_scheduled_downgrade") {
+      confirmed = window.confirm("Da li želiš da otkažeš zakazano smanjenje plana?");
     }
 
     if (action === "change_plan") {
@@ -701,6 +725,31 @@ export default function OwnerDashboard() {
                 value={`${activeDevicesCount}${deviceLimit !== null ? ` / ${deviceLimit}` : ""}`}
               />
             </div>
+
+            {hasScheduledDowngrade ? (
+              <div style={scheduledDowngradeBoxStyle}>
+                <div>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                    Zakazano smanjenje plana
+                  </div>
+                  <div>
+                    Trenutni plan ostaje <b>{mergedSubscription.plan_id}</b> do{" "}
+                    <b>{formatDate(mergedSubscription.scheduled_plan_change_at)}</b>, a zatim se smanjuje na{" "}
+                    <b>{mergedSubscription.scheduled_plan_id}</b>.
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => handleSubscriptionAction("cancel_scheduled_downgrade")}
+                  disabled={subscriptionActionLoading === "cancel_scheduled_downgrade"}
+                  style={dangerButtonStyle}
+                >
+                  {subscriptionActionLoading === "cancel_scheduled_downgrade"
+                    ? "Radim..."
+                    : "Otkaži zakazano smanjenje"}
+                </button>
+              </div>
+            ) : null}
           </>
         ) : (
           <p>Nema subscription zapisa za ovu organizaciju.</p>
@@ -990,18 +1039,18 @@ function subscriptionMessage(status: UiSubscriptionStatus, sub: Sub) {
   }
 
   if (status === "expired") {
-    return `Pretplata je istekla. Pristup može biti blokiran ako nema aktivne licence.`;
+    return "Pretplata je istekla. Pristup može biti blokiran ako nema aktivne licence.";
   }
 
   if (status === "payment_failed") {
-    return `Plaćanje nije uspelo. Korisnik treba da ažurira karticu ili proveri naplatu.`;
+    return "Plaćanje nije uspelo. Korisnik treba da ažurira karticu ili proveri naplatu.";
   }
 
   if (status === "paused") {
-    return `Pretplata je pauzirana. Proveriti status naplate pre daljeg korišćenja.`;
+    return "Pretplata je pauzirana. Proveriti status naplate pre daljeg korišćenja.";
   }
 
-  return `Status pretplate nije jasno prepoznat. Proveriti Lemon Squeezy i subscriptions tabelu.`;
+  return "Status pretplate nije jasno prepoznat. Proveriti Lemon Squeezy i subscriptions tabelu.";
 }
 
 function formatDate(value: string | null | undefined) {
@@ -1046,15 +1095,17 @@ function errorLabel(err: string) {
   if (err === "missing_plan_id") return "Izaberi plan.";
   if (err === "missing_org_id") return "Nedostaje organizacija.";
   if (err === "unknown_plan_id") return "Nepoznat plan.";
+  if (err === "unknown_current_plan_id") return "Trenutni plan nije prepoznat.";
   if (err === "no_lemonsqueezy_subscription") return "Za ovu organizaciju nije pronađena Lemon Squeezy pretplata.";
   if (err === "lemonsqueezy_fetch_failed") return "Ne mogu da učitam billing linkove iz Lemon Squeezy-ja.";
   if (err === "lemonsqueezy_cancel_failed") return "Otkazivanje pretplate nije uspelo.";
   if (err === "lemonsqueezy_resume_failed") return "Nastavak pretplate nije uspeo.";
   if (err === "lemonsqueezy_change_plan_failed") return "Promena plana nije uspela.";
+  if (err === "schedule_downgrade_failed") return "Zakazivanje smanjenja plana nije uspelo.";
+  if (err === "cancel_scheduled_downgrade_failed") return "Otkazivanje zakazanog smanjenja plana nije uspelo.";
   if (err === "subscription_lookup_failed") return "Ne mogu da pronađem pretplatu za ovu organizaciju.";
   if (err === "membership_lookup_failed") return "Ne mogu da proverim owner pristup organizaciji.";
   if (err === "multiple_owner_orgs_detected") return "Pronađeno je više owner organizacija za isti nalog.";
-  if (err === "downgrade_scheduling_not_ready") return "Downgrade će biti omogućen nakon uvođenja zakazanog smanjenja plana.";
   return err;
 }
 
@@ -1063,8 +1114,7 @@ const pageStyle: React.CSSProperties = {
   maxWidth: 1180,
   margin: "0 auto",
   color: "#111827",
-  fontFamily:
-    'Arial, "Helvetica Neue", Helvetica, sans-serif',
+  fontFamily: 'Arial, "Helvetica Neue", Helvetica, sans-serif',
 };
 
 const headerStyle: React.CSSProperties = {
@@ -1168,6 +1218,20 @@ const factStyle: React.CSSProperties = {
   border: "1px solid #e5e7eb",
   borderRadius: 12,
   background: "#f9fafb",
+};
+
+const scheduledDowngradeBoxStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: 16,
+  borderRadius: 14,
+  border: "1px solid #fde68a",
+  background: "#fffbeb",
+  color: "#92400e",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
 const billingBoxStyle: React.CSSProperties = {
