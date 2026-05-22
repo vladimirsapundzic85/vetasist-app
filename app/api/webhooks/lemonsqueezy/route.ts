@@ -11,6 +11,7 @@ const supabase = createClient(
 );
 
 const WEBHOOK_SECRET = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET!;
+const LEMON_API_KEY = process.env.LEMON_API_KEY!;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 const SEND_LICENSE_EMAILS_IN_TEST_MODE =
