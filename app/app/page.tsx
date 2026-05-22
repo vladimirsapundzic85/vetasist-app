@@ -1054,6 +1054,7 @@ function errorLabel(err: string) {
   if (err === "subscription_lookup_failed") return "Ne mogu da pronađem pretplatu za ovu organizaciju.";
   if (err === "membership_lookup_failed") return "Ne mogu da proverim owner pristup organizaciji.";
   if (err === "multiple_owner_orgs_detected") return "Pronađeno je više owner organizacija za isti nalog.";
+  if (err === "downgrade_scheduling_not_ready") return "Downgrade će biti omogućen nakon uvođenja zakazanog smanjenja plana.";
   return err;
 }
 
