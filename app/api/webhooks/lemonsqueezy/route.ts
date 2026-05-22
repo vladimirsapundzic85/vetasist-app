@@ -554,6 +554,145 @@ async function deactivateAllLicensesForOrg(orgId: string) {
     throw new Error(`license_deactivate_failed:${error.message}`);
   }
 }
+async function applyScheduledDowngradeIfNeeded(params: {
+  orgId: string;
+  externalSubscriptionId: string;
+  event: string;
+}) {
+  const renewalEvents = new Set([
+    "subscription_payment_success",
+    "subscription_updated",
+  ]);
+
+  if (!renewalEvents.has(params.event)) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "event_not_eligible",
+    };
+  }
+
+  const { data: subscription, error } = await supabase
+    .from("subscriptions")
+    .select(`
+      org_id,
+      plan_id,
+      scheduled_plan_id,
+      scheduled_plan_change_at,
+      external_subscription_id
+    `)
+    .eq("external_subscription_id", params.externalSubscriptionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`scheduled_downgrade_lookup_failed:${error.message}`);
+  }
+
+  if (!subscription) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "subscription_not_found",
+    };
+  }
+
+  const scheduledPlanId = safeString(subscription.scheduled_plan_id);
+
+  if (!scheduledPlanId) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "no_scheduled_downgrade",
+    };
+  }
+
+  const scheduledAt = subscription.scheduled_plan_change_at
+    ? new Date(subscription.scheduled_plan_change_at)
+    : null;
+
+  if (!scheduledAt || Number.isNaN(scheduledAt.getTime())) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "invalid_schedule_date",
+    };
+  }
+
+  const now = new Date();
+
+  if (now.getTime() < scheduledAt.getTime()) {
+    return {
+      ok: true,
+      skipped: true,
+      reason: "schedule_not_reached",
+    };
+  }
+
+  const variantMap: Record<string, number> = {
+    basic: 1358750,
+    team: 1394223,
+    pro: 1395047,
+    exclusive: 1395048,
+  };
+
+  const variantId = variantMap[scheduledPlanId];
+
+  if (!variantId) {
+    throw new Error(`scheduled_downgrade_unknown_variant:${scheduledPlanId}`);
+  }
+
+  const lemonRes = await fetch(
+    `https://api.lemonsqueezy.com/v1/subscriptions/${params.externalSubscriptionId}`,
+    {
+      method: "PATCH",
+      headers: {
+        Accept: "application/vnd.api+json",
+        "Content-Type": "application/vnd.api+json",
+        Authorization: `Bearer ${LEMON_API_KEY}`,
+      },
+      body: JSON.stringify({
+        data: {
+          type: "subscriptions",
+          id: params.externalSubscriptionId,
+          attributes: {
+            variant_id: variantId,
+            disable_prorations: true,
+          },
+        },
+      }),
+    }
+  );
+
+  const lemonData = await lemonRes.json().catch(() => null);
+
+  if (!lemonRes.ok) {
+    throw new Error(
+      `scheduled_downgrade_lemon_failed:${JSON.stringify(lemonData)}`
+    );
+  }
+
+  const { error: updateErr } = await supabase
+    .from("subscriptions")
+    .update({
+      plan_id: scheduledPlanId,
+      scheduled_plan_id: null,
+      scheduled_plan_change_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("external_subscription_id", params.externalSubscriptionId);
+
+  if (updateErr) {
+    throw new Error(
+      `scheduled_downgrade_finalize_failed:${updateErr.message}`
+    );
+  }
+
+  return {
+    ok: true,
+    applied: true,
+    new_plan: scheduledPlanId,
+  };
+}
 
 function escapeHtml(value: string): string {
   return String(value ?? "")
@@ -865,6 +1004,11 @@ const isNewSubscription = !existingSubscriptionBeforeUpsert;
       cancelAtPeriodEnd: isCancelAtPeriodEnd(payload.providerStatus, payload.endsAt),
       event: payload.event,
     });
+    await applyScheduledDowngradeIfNeeded({
+  orgId: org.id,
+  externalSubscriptionId: payload.externalSubscriptionId,
+  event: payload.event,
+});
 
     let licenseKey: string | null = null;
     let emailResult: unknown = null;
