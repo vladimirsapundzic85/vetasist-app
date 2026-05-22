@@ -11,7 +11,6 @@ const supabase = createClient(
 );
 
 const WEBHOOK_SECRET = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET!;
-const LEMON_API_KEY = process.env.LEMON_API_KEY!;
 const RESEND_API_KEY = process.env.RESEND_API_KEY || "";
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "";
 const SEND_LICENSE_EMAILS_IN_TEST_MODE =
@@ -35,6 +34,7 @@ const PLAN_MAP: Record<number, PlanInfo> = {
   1395337: { plan: "basic", device_limit: 1 },
   1413318: { plan: "pro", device_limit: 10 },
   1413312: { plan: "team", device_limit: 3 },
+  1689126: { plan: "exclusive", device_limit: 30 },
 };
 
 const HANDLED_EVENTS = new Set([
@@ -554,6 +554,14 @@ async function deactivateAllLicensesForOrg(orgId: string) {
     throw new Error(`license_deactivate_failed:${error.message}`);
   }
 }
+const LEMON_API_KEY_LIVE = process.env.LEMON_API_KEY_LIVE!;
+const LEMON_API_KEY_TEST = process.env.LEMON_API_KEY_TEST!;
+
+function resolveLemonApiKey(isTestMode: boolean): string {
+  return isTestMode
+    ? LEMON_API_KEY_TEST
+    : LEMON_API_KEY_LIVE;
+}
 async function applyScheduledDowngradeIfNeeded(params: {
   orgId: string;
   externalSubscriptionId: string;
@@ -639,6 +647,7 @@ async function applyScheduledDowngradeIfNeeded(params: {
   ]);
 
   const isTestMode = TEST_VARIANTS.has(currentVariantId);
+  const lemonApiKey = resolveLemonApiKey(isTestMode);
 
   const PLAN_TO_VARIANT_ID_LIVE: Record<string, number> = {
     basic: 1358750,
@@ -671,7 +680,7 @@ async function applyScheduledDowngradeIfNeeded(params: {
       headers: {
         Accept: "application/vnd.api+json",
         "Content-Type": "application/vnd.api+json",
-        Authorization: `Bearer ${LEMON_API_KEY}`,
+        Authorization: `Bearer ${lemonApiKey}`,
       },
       body: JSON.stringify({
         data: {
@@ -1030,11 +1039,30 @@ const isNewSubscription = !existingSubscriptionBeforeUpsert;
       cancelAtPeriodEnd: isCancelAtPeriodEnd(payload.providerStatus, payload.endsAt),
       event: payload.event,
     });
-    await applyScheduledDowngradeIfNeeded({
+    const scheduledDowngradeResult = await applyScheduledDowngradeIfNeeded({
   orgId: org.id,
   externalSubscriptionId: payload.externalSubscriptionId,
   event: payload.event,
 });
+
+const effectivePlan = scheduledDowngradeResult?.applied
+  ? (scheduledDowngradeResult.new_plan as PlanId)
+  : planInfo.plan;
+
+const effectivePlanInfo =
+  scheduledDowngradeResult?.applied
+    ? {
+        plan: effectivePlan,
+        device_limit:
+          effectivePlan === "basic"
+            ? 1
+            : effectivePlan === "team"
+            ? 3
+            : effectivePlan === "pro"
+            ? 10
+            : 30,
+      }
+    : planInfo;
 
     let licenseKey: string | null = null;
     let emailResult: unknown = null;
@@ -1042,7 +1070,7 @@ const isNewSubscription = !existingSubscriptionBeforeUpsert;
     if (localStatus === "active") {
       licenseKey = await ensureCanonicalLicenseForOrg({
         orgId: org.id,
-        planId: planInfo.plan,
+        planId: effectivePlan,
       });
 
       let emailKind: "welcome" | "renewal" | "resumed" | null = null;
@@ -1066,8 +1094,8 @@ if (licenseKey && emailKind) {
   emailResult = await sendLicenseEmail({
     to: payload.email,
     ownerName: payload.ownerName,
-    plan: planInfo.plan,
-    deviceLimit: planInfo.device_limit,
+    plan: effectivePlanInfo.plan,
+deviceLimit: effectivePlanInfo.device_limit,
     validUntil,
     licenseKey,
     testMode: payload.testMode,
@@ -1085,7 +1113,7 @@ if (licenseKey && emailKind) {
       org_id: org.id,
       owner_email: payload.email,
       external_subscription_id: payload.externalSubscriptionId,
-      plan: planInfo.plan,
+      plan: effectivePlan,
       provider_status: payload.providerStatus,
       local_status: localStatus,
       valid_until: validUntil,
