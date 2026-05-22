@@ -13,6 +13,13 @@ const LEMON_API_KEY = process.env.LEMON_SQUEEZY_API_KEY!;
 
 type PlanId = "basic" | "team" | "pro" | "exclusive";
 
+const PLAN_ORDER: Record<PlanId, number> = {
+  basic: 1,
+  team: 2,
+  pro: 3,
+  exclusive: 4,
+};
+
 const PLAN_TO_VARIANT_ID_LIVE: Record<PlanId, number> = {
   basic: 1358750,
   team: 1394223,
@@ -20,10 +27,11 @@ const PLAN_TO_VARIANT_ID_LIVE: Record<PlanId, number> = {
   exclusive: 1395048,
 };
 
-const PLAN_TO_VARIANT_ID_TEST: Partial<Record<PlanId, number>> = {
+const PLAN_TO_VARIANT_ID_TEST: Record<PlanId, number> = {
   basic: 1395337,
   team: 1413312,
   pro: 1413318,
+  exclusive: 1689126,
 };
 
 function getAuthClient(req: Request) {
@@ -40,6 +48,46 @@ function getAuthClient(req: Request) {
       },
     }
   );
+}
+
+function json(body: unknown, status = 200) {
+  return NextResponse.json(body, { status });
+}
+
+function safeString(value: unknown): string {
+  return String(value || "").trim();
+}
+
+function normalizePlanId(value: unknown): PlanId | null {
+  const plan = String(value || "").trim().toLowerCase();
+
+  if (plan === "basic") return "basic";
+  if (plan === "team") return "team";
+  if (plan === "pro") return "pro";
+  if (plan === "exclusive") return "exclusive";
+
+  return null;
+}
+
+function mapPlanToVariantId(planId: PlanId, isTestMode: boolean): number {
+  return isTestMode
+    ? PLAN_TO_VARIANT_ID_TEST[planId]
+    : PLAN_TO_VARIANT_ID_LIVE[planId];
+}
+
+function extractLemonErrorDetails(data: any): string {
+  if (!data) return "unknown_lemonsqueezy_error";
+  if (typeof data === "string") return data;
+
+  const firstDetail = data?.errors?.[0]?.detail;
+  if (firstDetail) return String(firstDetail);
+
+  const firstTitle = data?.errors?.[0]?.title;
+  if (firstTitle) return String(firstTitle);
+
+  if (data?.message) return String(data.message);
+
+  return JSON.stringify(data);
 }
 
 async function requireOwnerContext(req: Request) {
@@ -89,6 +137,8 @@ async function requireOwnerContext(req: Request) {
       external_customer_id,
       provider_status,
       cancel_at_period_end,
+      scheduled_plan_id,
+      scheduled_plan_change_at,
       updated_at
     `
     )
@@ -107,8 +157,7 @@ async function requireOwnerContext(req: Request) {
 
   const canonicalSubscription =
     subscriptions.find(
-      (s) =>
-        String(s.provider_status || "").toLowerCase() !== "expired"
+      (s) => String(s.provider_status || "").toLowerCase() !== "expired"
     ) || subscriptions[0];
 
   if (!canonicalSubscription?.external_subscription_id) {
@@ -148,36 +197,6 @@ async function lemonFetch(path: string, init?: RequestInit) {
   return { res, data };
 }
 
-function mapPlanToVariantId(planId: string, isTestMode: boolean): number | null {
-  const normalized = String(planId || "").trim().toLowerCase() as PlanId;
-
-  if (isTestMode) {
-    return PLAN_TO_VARIANT_ID_TEST[normalized] ?? null;
-  }
-
-  return PLAN_TO_VARIANT_ID_LIVE[normalized] ?? null;
-}
-
-function json(body: unknown, status = 200) {
-  return NextResponse.json(body, { status });
-}
-
-function extractLemonErrorDetails(data: any): string {
-  if (!data) return "unknown_lemonsqueezy_error";
-
-  if (typeof data === "string") return data;
-
-  const firstDetail = data?.errors?.[0]?.detail;
-  if (firstDetail) return String(firstDetail);
-
-  const firstTitle = data?.errors?.[0]?.title;
-  if (firstTitle) return String(firstTitle);
-
-  if (data?.message) return String(data.message);
-
-  return JSON.stringify(data);
-}
-
 export async function GET(req: Request) {
   try {
     const ctx = await requireOwnerContext(req);
@@ -212,25 +231,19 @@ export async function GET(req: Request) {
         org_id: ctx.org_id,
         external_subscription_id: subscriptionId,
         plan_id: ctx.subscription.plan_id,
-
         local_status: ctx.subscription.status ?? null,
-
-        provider_status:
-          attrs?.status ??
-          ctx.subscription.provider_status ??
-          null,
-
+        provider_status: attrs?.status ?? ctx.subscription.provider_status ?? null,
         valid_until:
           attrs?.renews_at ??
           attrs?.ends_at ??
           ctx.subscription.valid_until ??
           null,
-
         cancel_at_period_end:
           typeof attrs?.cancelled === "boolean"
             ? attrs.cancelled
             : !!ctx.subscription.cancel_at_period_end,
-
+        scheduled_plan_id: ctx.subscription.scheduled_plan_id ?? null,
+        scheduled_plan_change_at: ctx.subscription.scheduled_plan_change_at ?? null,
         test_mode: isTestMode,
       },
 
@@ -269,9 +282,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => null);
-
     const action = String(body?.action || "").trim();
-
     const subscriptionId = String(ctx.subscription.external_subscription_id);
 
     if (!action) {
@@ -293,7 +304,6 @@ export async function POST(req: Request) {
     }
 
     const currentAttrs = lemonCurrent.data?.data?.attributes ?? {};
-
     const isTestMode = !!currentAttrs?.test_mode;
 
     if (action === "cancel") {
@@ -356,127 +366,144 @@ export async function POST(req: Request) {
       });
     }
 
-    if (action === "change_plan") {
-  const PLAN_ORDER: Record<string, number> = {
-    basic: 1,
-    team: 2,
-    pro: 3,
-    exclusive: 4,
-  };
+    if (action === "cancel_scheduled_downgrade") {
+      const { error: clearErr } = await supabaseAdmin
+        .from("subscriptions")
+        .update({
+          scheduled_plan_id: null,
+          scheduled_plan_change_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("external_subscription_id", subscriptionId);
 
-  const currentPlanId = String(ctx.subscription.plan_id || "")
-    .trim()
-    .toLowerCase();
+      if (clearErr) {
+        return json(
+          {
+            ok: false,
+            error: "cancel_scheduled_downgrade_failed",
+            details: clearErr.message,
+          },
+          500
+        );
+      }
 
-  const newPlanId = String(body?.plan_id || "")
-    .trim()
-    .toLowerCase();
-
-  if (!newPlanId) {
-    return json({ ok: false, error: "missing_plan_id" }, 400);
-  }
-
-  if (newPlanId === currentPlanId) {
-    return json({ ok: false, error: "same_plan" }, 400);
-  }
-
-  const currentRank = PLAN_ORDER[currentPlanId] ?? 0;
-  const newRank = PLAN_ORDER[newPlanId] ?? 0;
-
-  if (!newRank) {
-    return json({ ok: false, error: "unknown_plan_id" }, 400);
-  }
-
-  const isUpgrade = newRank > currentRank;
-  const isDowngrade = newRank < currentRank;
-
-  if (isDowngrade) {
-  const scheduledAt =
-    currentAttrs?.renews_at ??
-    ctx.subscription.valid_until ??
-    null;
-
-  const { error: scheduleErr } = await supabaseAdmin
-    .from("subscriptions")
-    .update({
-      scheduled_plan_id: newPlanId,
-      scheduled_plan_change_at: scheduledAt,
-    })
-    .eq("org_id", ctx.org_id)
-    .eq("external_provider", "lemonsqueezy");
-
-  if (scheduleErr) {
-    return json(
-      {
-        ok: false,
-        error: "schedule_downgrade_failed",
-        details: scheduleErr.message,
-      },
-      500
-    );
-  }
-
-  return json({
-    ok: true,
-    action: "schedule_downgrade",
-    scheduled_plan_id: newPlanId,
-    scheduled_plan_change_at: scheduledAt,
-    message:
-      "Smanjenje plana je zakazano za sledeći obračunski period.",
-  });
-}
-
-  const variantId = mapPlanToVariantId(newPlanId, isTestMode);
-
-  if (!variantId) {
-    return json({ ok: false, error: "unknown_plan_id" }, 400);
-  }
-
-  const payload = {
-    data: {
-      type: "subscriptions",
-      id: subscriptionId,
-      attributes: {
-        variant_id: variantId,
-
-        // upgrade odmah naplaćuje proraciju
-        invoice_immediately: isUpgrade,
-
-        // koristi Lemon proraciju
-        disable_prorations: false,
-      },
-    },
-  };
-
-  const { res, data } = await lemonFetch(
-    `/v1/subscriptions/${subscriptionId}`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(payload),
+      return json({
+        ok: true,
+        action: "cancel_scheduled_downgrade",
+        message: "Zakazano smanjenje plana je otkazano.",
+      });
     }
-  );
 
-  if (!res.ok) {
-    return json(
-      {
-        ok: false,
-        error: "lemonsqueezy_change_plan_failed",
-        details: extractLemonErrorDetails(data),
-        raw: data,
-      },
-      502
-    );
-  }
+    if (action === "change_plan") {
+      const currentPlanId = normalizePlanId(ctx.subscription.plan_id);
+      const newPlanId = normalizePlanId(body?.plan_id);
 
-  return json({
-    ok: true,
-    action: "change_plan",
-    upgrade: isUpgrade,
-    message: isUpgrade
-      ? "Plan je odmah povećan i proracija je naplaćena."
-      : "Promena plana je poslata.",
-  });
-}
+      if (!newPlanId) {
+        return json({ ok: false, error: "missing_plan_id" }, 400);
+      }
+
+      if (!currentPlanId) {
+        return json({ ok: false, error: "unknown_current_plan_id" }, 400);
+      }
+
+      if (newPlanId === currentPlanId) {
+        return json({ ok: false, error: "same_plan" }, 400);
+      }
+
+      const currentRank = PLAN_ORDER[currentPlanId];
+      const newRank = PLAN_ORDER[newPlanId];
+
+      const isUpgrade = newRank > currentRank;
+      const isDowngrade = newRank < currentRank;
+
+      if (isDowngrade) {
+        const scheduledAt =
+          currentAttrs?.renews_at ??
+          ctx.subscription.valid_until ??
+          null;
+
+        const { error: scheduleErr } = await supabaseAdmin
+          .from("subscriptions")
+          .update({
+            scheduled_plan_id: newPlanId,
+            scheduled_plan_change_at: scheduledAt,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("external_subscription_id", subscriptionId);
+
+        if (scheduleErr) {
+          return json(
+            {
+              ok: false,
+              error: "schedule_downgrade_failed",
+              details: scheduleErr.message,
+            },
+            500
+          );
+        }
+
+        return json({
+          ok: true,
+          action: "schedule_downgrade",
+          scheduled_plan_id: newPlanId,
+          scheduled_plan_change_at: scheduledAt,
+          message:
+            "Smanjenje plana je zakazano za sledeći obračunski period.",
+        });
+      }
+
+      const variantId = mapPlanToVariantId(newPlanId, isTestMode);
+
+      const payload = {
+        data: {
+          type: "subscriptions",
+          id: subscriptionId,
+          attributes: {
+            variant_id: variantId,
+            invoice_immediately: isUpgrade,
+            disable_prorations: false,
+          },
+        },
+      };
+
+      const { res, data } = await lemonFetch(
+        `/v1/subscriptions/${subscriptionId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!res.ok) {
+        return json(
+          {
+            ok: false,
+            error: "lemonsqueezy_change_plan_failed",
+            details: extractLemonErrorDetails(data),
+            raw: data,
+          },
+          502
+        );
+      }
+
+      await supabaseAdmin
+        .from("subscriptions")
+        .update({
+          scheduled_plan_id: null,
+          scheduled_plan_change_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("external_subscription_id", subscriptionId);
+
+      return json({
+        ok: true,
+        action: "change_plan",
+        upgrade: isUpgrade,
+        message: isUpgrade
+          ? "Plan je odmah povećan i proracija je naplaćena."
+          : "Promena plana je poslata.",
+      });
+    }
 
     return json({ ok: false, error: "unknown_action" }, 400);
   } catch (err) {
