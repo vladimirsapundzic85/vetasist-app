@@ -579,7 +579,8 @@ async function applyScheduledDowngradeIfNeeded(params: {
       plan_id,
       scheduled_plan_id,
       scheduled_plan_change_at,
-      external_subscription_id
+      external_subscription_id,
+      external_variant_id
     `)
     .eq("external_subscription_id", params.externalSubscriptionId)
     .maybeSingle();
@@ -628,17 +629,39 @@ async function applyScheduledDowngradeIfNeeded(params: {
     };
   }
 
-  const variantMap: Record<string, number> = {
+  const currentVariantId = Number(subscription.external_variant_id || 0);
+
+  const TEST_VARIANTS = new Set([
+    1395337,
+    1413312,
+    1413318,
+    1689126,
+  ]);
+
+  const isTestMode = TEST_VARIANTS.has(currentVariantId);
+
+  const PLAN_TO_VARIANT_ID_LIVE: Record<string, number> = {
     basic: 1358750,
     team: 1394223,
     pro: 1395047,
     exclusive: 1395048,
   };
 
-  const variantId = variantMap[scheduledPlanId];
+  const PLAN_TO_VARIANT_ID_TEST: Record<string, number> = {
+    basic: 1395337,
+    team: 1413312,
+    pro: 1413318,
+    exclusive: 1689126,
+  };
+
+  const variantId = isTestMode
+    ? PLAN_TO_VARIANT_ID_TEST[scheduledPlanId]
+    : PLAN_TO_VARIANT_ID_LIVE[scheduledPlanId];
 
   if (!variantId) {
-    throw new Error(`scheduled_downgrade_unknown_variant:${scheduledPlanId}`);
+    throw new Error(
+      `scheduled_downgrade_unknown_variant:${scheduledPlanId}`
+    );
   }
 
   const lemonRes = await fetch(
@@ -675,6 +698,7 @@ async function applyScheduledDowngradeIfNeeded(params: {
     .from("subscriptions")
     .update({
       plan_id: scheduledPlanId,
+      external_variant_id: variantId,
       scheduled_plan_id: null,
       scheduled_plan_change_at: null,
       updated_at: new Date().toISOString(),
@@ -691,6 +715,8 @@ async function applyScheduledDowngradeIfNeeded(params: {
     ok: true,
     applied: true,
     new_plan: scheduledPlanId,
+    variant_id: variantId,
+    test_mode: isTestMode,
   };
 }
 
