@@ -357,60 +357,102 @@ export async function POST(req: Request) {
     }
 
     if (action === "change_plan") {
-      const newPlanId = String(body?.plan_id || "")
-        .trim()
-        .toLowerCase();
+  const PLAN_ORDER: Record<string, number> = {
+    basic: 1,
+    team: 2,
+    pro: 3,
+    exclusive: 4,
+  };
 
-      if (!newPlanId) {
-        return json({ ok: false, error: "missing_plan_id" }, 400);
-      }
+  const currentPlanId = String(ctx.subscription.plan_id || "")
+    .trim()
+    .toLowerCase();
 
-      if (
-        newPlanId ===
-        String(ctx.subscription.plan_id || "").trim().toLowerCase()
-      ) {
-        return json({ ok: false, error: "same_plan" }, 400);
-      }
+  const newPlanId = String(body?.plan_id || "")
+    .trim()
+    .toLowerCase();
 
-      const variantId = mapPlanToVariantId(newPlanId, isTestMode);
+  if (!newPlanId) {
+    return json({ ok: false, error: "missing_plan_id" }, 400);
+  }
 
-      if (!variantId) {
-        return json({ ok: false, error: "unknown_plan_id" }, 400);
-      }
+  if (newPlanId === currentPlanId) {
+    return json({ ok: false, error: "same_plan" }, 400);
+  }
 
-      const payload = {
-        data: {
-          type: "subscriptions",
-          id: subscriptionId,
-          attributes: {
-            variant_id: variantId,
-          },
-        },
-      };
+  const currentRank = PLAN_ORDER[currentPlanId] ?? 0;
+  const newRank = PLAN_ORDER[newPlanId] ?? 0;
 
-      const { res, data } = await lemonFetch(`/v1/subscriptions/${subscriptionId}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+  if (!newRank) {
+    return json({ ok: false, error: "unknown_plan_id" }, 400);
+  }
 
-      if (!res.ok) {
-        return json(
-          {
-            ok: false,
-            error: "lemonsqueezy_change_plan_failed",
-            details: extractLemonErrorDetails(data),
-            raw: data,
-          },
-          502
-        );
-      }
+  const isUpgrade = newRank > currentRank;
+  const isDowngrade = newRank < currentRank;
 
-      return json({
-        ok: true,
-        action: "change_plan",
-        message: "Promena plana je poslata.",
-      });
+  if (isDowngrade) {
+    return json(
+      {
+        ok: false,
+        error: "downgrade_scheduling_not_ready",
+        details:
+          "Downgrade će biti podržan nakon uvođenja zakazanog smanjenja plana na kraju obračunskog perioda.",
+      },
+      400
+    );
+  }
+
+  const variantId = mapPlanToVariantId(newPlanId, isTestMode);
+
+  if (!variantId) {
+    return json({ ok: false, error: "unknown_plan_id" }, 400);
+  }
+
+  const payload = {
+    data: {
+      type: "subscriptions",
+      id: subscriptionId,
+      attributes: {
+        variant_id: variantId,
+
+        // upgrade odmah naplaćuje proraciju
+        invoice_immediately: isUpgrade,
+
+        // koristi Lemon proraciju
+        disable_prorations: false,
+      },
+    },
+  };
+
+  const { res, data } = await lemonFetch(
+    `/v1/subscriptions/${subscriptionId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
     }
+  );
+
+  if (!res.ok) {
+    return json(
+      {
+        ok: false,
+        error: "lemonsqueezy_change_plan_failed",
+        details: extractLemonErrorDetails(data),
+        raw: data,
+      },
+      502
+    );
+  }
+
+  return json({
+    ok: true,
+    action: "change_plan",
+    upgrade: isUpgrade,
+    message: isUpgrade
+      ? "Plan je odmah povećan i proracija je naplaćena."
+      : "Promena plana je poslata.",
+  });
+}
 
     return json({ ok: false, error: "unknown_action" }, 400);
   } catch (err) {
