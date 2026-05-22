@@ -391,16 +391,40 @@ export async function POST(req: Request) {
   const isDowngrade = newRank < currentRank;
 
   if (isDowngrade) {
+  const scheduledAt =
+    currentAttrs?.renews_at ??
+    ctx.subscription.valid_until ??
+    null;
+
+  const { error: scheduleErr } = await supabaseAdmin
+    .from("subscriptions")
+    .update({
+      scheduled_plan_id: newPlanId,
+      scheduled_plan_change_at: scheduledAt,
+    })
+    .eq("org_id", ctx.org_id)
+    .eq("external_provider", "lemonsqueezy");
+
+  if (scheduleErr) {
     return json(
       {
         ok: false,
-        error: "downgrade_scheduling_not_ready",
-        details:
-          "Downgrade će biti podržan nakon uvođenja zakazanog smanjenja plana na kraju obračunskog perioda.",
+        error: "schedule_downgrade_failed",
+        details: scheduleErr.message,
       },
-      400
+      500
     );
   }
+
+  return json({
+    ok: true,
+    action: "schedule_downgrade",
+    scheduled_plan_id: newPlanId,
+    scheduled_plan_change_at: scheduledAt,
+    message:
+      "Smanjenje plana je zakazano za sledeći obračunski period.",
+  });
+}
 
   const variantId = mapPlanToVariantId(newPlanId, isTestMode);
 
