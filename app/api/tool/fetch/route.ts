@@ -18,13 +18,6 @@ const supabase = createClient(
 
 const TOOLS_BUCKET = "Tools";
 
-type ToolRuntimeManifest =
-  | {
-      mode: "local_files";
-      files: string[];
-    }
-  | null;
-
 function jsonResponse(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -34,17 +27,6 @@ function jsonResponse(body: unknown, status = 200) {
       "Access-Control-Allow-Headers": "Content-Type",
     },
   });
-}
-
-
-  if (code === "provera_telenja") {
-    return {
-      mode: "local_files",
-      files: [`tools/provera_telenja/${ver}/script.js`],
-    };
-  }
-
-  return null;
 }
 
 export async function OPTIONS() {
@@ -170,6 +152,7 @@ export async function POST(req: Request) {
     }
 
     const storagePath = String(build.storage_path || "").trim();
+
     if (!storagePath) {
       return jsonResponse({ ok: false, error: "empty_storage_path" }, 500);
     }
@@ -190,11 +173,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const runtime = getToolRuntime(tool.code, String(build.version || ""));
-
     return jsonResponse({
       ok: true,
-      debug_route_version: "tool_fetch_runtime_v4_fp_fixed",
+      debug_route_version: "tool_fetch_local_manifest_fallback_v1",
       tool: {
         code: tool.code,
         name: tool.name,
@@ -205,7 +186,7 @@ export async function POST(req: Request) {
         payload_type: build.payload_type ?? "js",
       },
       script_url: signed.signedUrl,
-      runtime,
+      runtime: null,
       meta: {
         plan: planId,
         valid_until: context.subscription.valid_until ?? null,
