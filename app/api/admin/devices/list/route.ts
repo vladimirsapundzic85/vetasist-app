@@ -1,26 +1,36 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/app/lib/admin-auth";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-function requireAdminKey(provided: string | undefined) {
-  const adminKey = process.env.VETASIST_ADMIN_API_KEY;
-  return adminKey && provided === adminKey;
-}
-
 export async function POST(req: Request) {
   try {
-    const { admin_key, license_key } = await req.json();
+    const admin = await requireAdmin(req);
 
-    if (!requireAdminKey(admin_key)) {
-      return NextResponse.json({ ok: false, error: "invalid_admin_key" }, { status: 401 });
+    if (!admin.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: admin.error,
+        },
+        { status: admin.status }
+      );
     }
 
+    const { license_key } = await req.json();
+
     if (!license_key) {
-      return NextResponse.json({ ok: false, error: "missing_license_key" }, { status: 400 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "missing_license_key",
+        },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabase
@@ -30,13 +40,27 @@ export async function POST(req: Request) {
       .order("last_seen", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ ok: false, error: "list_failed", detail: error }, { status: 500 });
+      return NextResponse.json(
+        {
+          ok: false,
+          error: "list_failed",
+          detail: error.message,
+        },
+        { status: 500 }
+      );
     }
 
-    return NextResponse.json({ ok: true, devices: data ?? [] });
+    return NextResponse.json({
+      ok: true,
+      devices: data ?? [],
+    });
   } catch (e: any) {
     return NextResponse.json(
-      { ok: false, error: "server_error", detail: e?.message ?? String(e) },
+      {
+        ok: false,
+        error: "server_error",
+        detail: e?.message ?? String(e),
+      },
       { status: 500 }
     );
   }
