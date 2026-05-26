@@ -5,6 +5,8 @@ import {
   restoreResetBlockedDevice,
 } from "@/app/lib/license-core";
 
+import { requireAdmin } from "@/app/lib/admin-auth";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -14,32 +16,55 @@ function json(data: unknown, status = 200) {
 
 export async function POST(req: Request) {
   try {
+    const admin = await requireAdmin(req);
+
+    if (!admin.ok) {
+      return json(
+        {
+          ok: false,
+          error: admin.error,
+        },
+        admin.status
+      );
+    }
+
     const body = await req.json().catch(() => null);
 
-    const adminKey = String(body?.admin_key || "").trim();
     const licenseKey = String(body?.license_key || "").trim();
     const deviceFp = String(body?.device_fp || "").trim();
     const resetAll = !!body?.reset_all;
-    const action = String(body?.action || (resetAll ? "reset_all" : "reset")).trim();
-    const reason = body?.reason ? String(body.reason) : null;
 
-    if (adminKey !== process.env.VETASIST_ADMIN_API_KEY) {
-      return json({ ok: false, error: "invalid_admin_key" }, 401);
-    }
+    const action = String(
+      body?.action || (resetAll ? "reset_all" : "reset")
+    ).trim();
+
+    const reason = body?.reason
+      ? String(body.reason)
+      : null;
 
     if (!licenseKey) {
-      return json({ ok: false, error: "missing_license_key" }, 400);
+      return json(
+        {
+          ok: false,
+          error: "missing_license_key",
+        },
+        400
+      );
     }
 
     if (action === "reset_all") {
       const result = await resetAllDevicesForLicense({
         license_key: licenseKey,
-        performed_by: "admin",
+        performed_by: admin.admin.email,
         reason,
       });
 
       if (!result.ok) {
-        const status = result.error === "server_error" ? 500 : 403;
+        const status =
+          result.error === "server_error"
+            ? 500
+            : 403;
+
         return json(
           {
             ok: false,
@@ -63,14 +88,20 @@ export async function POST(req: Request) {
     }
 
     if (!deviceFp) {
-      return json({ ok: false, error: "missing_device_fp" }, 400);
+      return json(
+        {
+          ok: false,
+          error: "missing_device_fp",
+        },
+        400
+      );
     }
 
     if (action === "restore") {
       const result = await restoreResetBlockedDevice({
         license_key: licenseKey,
         device_fp: deviceFp,
-        performed_by: "admin",
+        performed_by: admin.admin.email,
         reason,
       });
 
@@ -78,7 +109,8 @@ export async function POST(req: Request) {
         const status =
           result.error === "server_error"
             ? 500
-            : result.error === "device_not_found" || result.error === "device_not_reset_blocked"
+            : result.error === "device_not_found" ||
+              result.error === "device_not_reset_blocked"
               ? 404
               : 403;
 
@@ -108,7 +140,7 @@ export async function POST(req: Request) {
     const result = await resetDeviceForLicense({
       license_key: licenseKey,
       device_fp: deviceFp,
-      performed_by: "admin",
+      performed_by: admin.admin.email,
       reason,
     });
 
@@ -147,7 +179,10 @@ export async function POST(req: Request) {
       {
         ok: false,
         error: "server_error",
-        details: err instanceof Error ? err.message : "unknown_server_error",
+        details:
+          err instanceof Error
+            ? err.message
+            : "unknown_server_error",
       },
       500
     );
