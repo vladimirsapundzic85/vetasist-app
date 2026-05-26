@@ -8,16 +8,23 @@ export function proxy(request: NextRequest) {
   if (host === "app.vetasist.net") {
     const isRoot = url.pathname === "/";
     const isAlreadyApp = url.pathname.startsWith("/app");
+    const isAdmin = url.pathname.startsWith("/admin");
     const isNextAsset = url.pathname.startsWith("/_next");
     const isApi = url.pathname.startsWith("/api");
-    const isStaticFile = /\.[a-zA-Z0-9]+$/.test(url.pathname);
+    const isStaticFile = /\.(?:[a-zA-Z0-9]+)$/.test(url.pathname);
 
     if (isRoot) {
       url.pathname = "/app";
       return NextResponse.rewrite(url);
     }
 
-    if (!isAlreadyApp && !isNextAsset && !isApi && !isStaticFile) {
+    if (
+      !isAlreadyApp &&
+      !isAdmin &&
+      !isNextAsset &&
+      !isApi &&
+      !isStaticFile
+    ) {
       url.pathname = `/app${url.pathname}`;
       return NextResponse.rewrite(url);
     }
