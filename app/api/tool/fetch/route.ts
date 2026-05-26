@@ -36,21 +36,6 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function getToolRuntime(toolCode: string, version: string): ToolRuntimeManifest {
-  const code = String(toolCode || "").trim();
-  const ver = String(version || "").trim();
-
-  if (!code || !ver) return null;
-
-  if (code === "vb_zbirni_xlsx") {
-    return {
-      mode: "local_files",
-      files: [
-        `tools/vb_zbirni_xlsx/${ver}/vendor/xlsx.full.min.js`,
-        `tools/vb_zbirni_xlsx/${ver}/script.js`,
-      ],
-    };
-  }
 
   if (code === "provera_telenja") {
     return {
