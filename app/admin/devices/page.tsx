@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { supabase } from "@/app/lib/supabase";
 
 type Device = {
   device_fp: string;
@@ -10,19 +11,60 @@ type Device = {
 };
 
 export default function AdminDevicesPage() {
-  const [adminKey, setAdminKey] = useState("");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+
   const [licenseKey, setLicenseKey] = useState("");
   const [devices, setDevices] = useState<Device[]>([]);
   const [status, setStatus] = useState<string>("");
+  const [loadingSession, setLoadingSession] = useState(true);
+
+  useEffect(() => {
+    async function loadSession() {
+      setLoadingSession(true);
+
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error || !data.session) {
+        setAccessToken(null);
+        setEmail(null);
+        setLoadingSession(false);
+        return;
+      }
+
+      setAccessToken(data.session.access_token);
+      setEmail(data.session.user.email ?? null);
+      setLoadingSession(false);
+    }
+
+    loadSession();
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAccessToken(session?.access_token ?? null);
+      setEmail(session?.user?.email ?? null);
+    });
+
+    return () => {
+      data.subscription.unsubscribe();
+    };
+  }, []);
 
   async function loadDevices() {
+    if (!accessToken) {
+      setStatus("ERROR: nisi ulogovan kao admin");
+      return;
+    }
+
     setStatus("Loading...");
     setDevices([]);
 
     const res = await fetch("/api/admin/devices/list", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admin_key: adminKey, license_key: licenseKey }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ license_key: licenseKey }),
     });
 
     const json = await res.json();
@@ -37,58 +79,104 @@ export default function AdminDevicesPage() {
   }
 
   async function removeOne(device_fp: string) {
-    setStatus("Removing...");
+    if (!accessToken) {
+      setStatus("ERROR: nisi ulogovan kao admin");
+      return;
+    }
+
+    setStatus("Resetting...");
+
     const res = await fetch("/api/admin/devices/reset", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admin_key: adminKey, license_key: licenseKey, device_fp }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        license_key: licenseKey,
+        device_fp,
+        action: "reset",
+        reason: "admin_manual_reset",
+      }),
     });
 
     const json = await res.json();
+
     if (!res.ok || !json.ok) {
       setStatus(`ERROR: ${json.error ?? "unknown"}`);
       return;
     }
 
-    setStatus(`OK: deleted ${device_fp}`);
+    setStatus(`OK: reset ${device_fp}`);
     await loadDevices();
   }
 
-  async function resetAll() {
-    if (!confirm("Reset ALL devices for this license?")) return;
+  async function restoreOne(device_fp: string) {
+    if (!accessToken) {
+      setStatus("ERROR: nisi ulogovan kao admin");
+      return;
+    }
 
-    setStatus("Resetting all...");
+    setStatus("Restoring...");
+
     const res = await fetch("/api/admin/devices/reset", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ admin_key: adminKey, license_key: licenseKey, reset_all: true }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        license_key: licenseKey,
+        device_fp,
+        action: "restore",
+        reason: "admin_manual_restore",
+      }),
     });
 
     const json = await res.json();
+
     if (!res.ok || !json.ok) {
       setStatus(`ERROR: ${json.error ?? "unknown"}`);
       return;
     }
 
-    setStatus("OK: deleted all devices");
+    setStatus(`OK: restored ${device_fp}`);
     await loadDevices();
+  }
+
+  if (loadingSession) {
+    return (
+      <div style={pageStyle}>
+        <h1>Admin: License Devices</h1>
+        <p>Učitavam sesiju...</p>
+      </div>
+    );
+  }
+
+  if (!accessToken) {
+    return (
+      <div style={pageStyle}>
+        <h1>Admin: License Devices</h1>
+        <p>Nisi ulogovan.</p>
+        <p>
+          Idi na <a href="/app/auth">/app/auth</a>, prijavi se admin emailom,
+          pa se vrati na ovu stranicu.
+        </p>
+      </div>
+    );
   }
 
   return (
-    <div style={{ maxWidth: 900, margin: "40px auto", padding: 16, fontFamily: "sans-serif" }}>
+    <div style={pageStyle}>
       <h1>Admin: License Devices</h1>
 
-      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
-        <label>
-          Admin key
-          <input
-            value={adminKey}
-            onChange={(e) => setAdminKey(e.target.value)}
-            style={{ width: "100%", padding: 8, marginTop: 4 }}
-            placeholder="VETASIST_ADMIN_API_KEY"
-          />
-        </label>
+      <div style={adminBoxStyle}>
+        <div>
+          <b>Admin session:</b> {email ?? "-"}
+        </div>
+      </div>
 
+      <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
         <label>
           License key
           <input
@@ -103,43 +191,55 @@ export default function AdminDevicesPage() {
           <button onClick={loadDevices} style={{ padding: "8px 12px" }}>
             Load
           </button>
-          <button onClick={resetAll} style={{ padding: "8px 12px" }}>
-            Reset all
-          </button>
         </div>
 
-        <div><b>Status:</b> {status}</div>
+        <div>
+          <b>Status:</b> {status}
+        </div>
       </div>
 
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>device_id</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>device_fp</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>last_seen</th>
-            <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}></th>
+            <th style={thStyle}>device_id</th>
+            <th style={thStyle}>device_fp</th>
+            <th style={thStyle}>first_seen</th>
+            <th style={thStyle}>last_seen</th>
+            <th style={thStyle}>akcije</th>
           </tr>
         </thead>
         <tbody>
           {devices.map((d) => (
             <tr key={d.device_fp}>
-              <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>{d.device_id ?? "-"}</td>
-              <td style={{ borderBottom: "1px solid #eee", padding: 8, fontFamily: "monospace" }}>
+              <td style={tdStyle}>{d.device_id ?? "-"}</td>
+              <td style={{ ...tdStyle, fontFamily: "monospace" }}>
                 {d.device_fp}
               </td>
-              <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>
-                {d.last_seen ?? "-"}
-              </td>
-              <td style={{ borderBottom: "1px solid #eee", padding: 8 }}>
-                <button onClick={() => removeOne(d.device_fp)} style={{ padding: "6px 10px" }}>
-                  Remove
-                </button>
+              <td style={tdStyle}>{d.first_seen ?? "-"}</td>
+              <td style={tdStyle}>{d.last_seen ?? "-"}</td>
+              <td style={tdStyle}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => removeOne(d.device_fp)}
+                    style={{ padding: "6px 10px" }}
+                  >
+                    Reset
+                  </button>
+
+                  <button
+                    onClick={() => restoreOne(d.device_fp)}
+                    style={{ padding: "6px 10px" }}
+                  >
+                    Restore
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
+
           {devices.length === 0 ? (
             <tr>
-              <td colSpan={4} style={{ padding: 8, color: "#666" }}>
+              <td colSpan={5} style={{ padding: 8, color: "#666" }}>
                 No devices loaded.
               </td>
             </tr>
@@ -149,3 +249,29 @@ export default function AdminDevicesPage() {
     </div>
   );
 }
+
+const pageStyle: React.CSSProperties = {
+  maxWidth: 1000,
+  margin: "40px auto",
+  padding: 16,
+  fontFamily: "sans-serif",
+};
+
+const adminBoxStyle: React.CSSProperties = {
+  padding: 12,
+  border: "1px solid #ddd",
+  borderRadius: 8,
+  background: "#fafafa",
+  marginBottom: 16,
+};
+
+const thStyle: React.CSSProperties = {
+  textAlign: "left",
+  borderBottom: "1px solid #ddd",
+  padding: 8,
+};
+
+const tdStyle: React.CSSProperties = {
+  borderBottom: "1px solid #eee",
+  padding: 8,
+};
