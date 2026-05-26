@@ -275,7 +275,63 @@ async function countActiveDevicesForLicense(license_key: string): Promise<number
 
   return count ?? 0;
 }
+async function enforceDeviceLimitForLicense(params: {
+  license_key: string;
+  limit: number;
+}): Promise<void> {
+  const license_key = String(params.license_key || "").trim();
+  const limit = Number(params.limit || 1);
 
+  if (!license_key || !Number.isFinite(limit) || limit < 1) return;
+
+  const { data: activeDevices, error } = await supabase
+    .from("license_devices")
+    .select("device_fp, last_seen, first_seen")
+    .eq("license_key", license_key)
+    .eq("status", "active")
+    .order("last_seen", { ascending: false });
+
+  if (error) {
+    throw new Error(`enforce_device_limit_lookup_failed:${error.message}`);
+  }
+
+  const rows = activeDevices ?? [];
+
+  if (rows.length <= limit) return;
+
+  const keep = rows.slice(0, limit);
+  const remove = rows.slice(limit);
+
+  const removeFps = remove
+    .map((r) => String(r.device_fp || "").trim())
+    .filter(Boolean);
+
+  if (!removeFps.length) return;
+
+  const nowIso = new Date().toISOString();
+
+  const { error: updateErr } = await supabase
+    .from("license_devices")
+    .update({
+      status: "passive",
+      passive_at: nowIso,
+      updated_at: nowIso,
+      notes: "auto_passivized_due_to_plan_device_limit",
+    })
+    .eq("license_key", license_key)
+    .in("device_fp", removeFps);
+
+  if (updateErr) {
+    throw new Error(`enforce_device_limit_update_failed:${updateErr.message}`);
+  }
+
+  console.log("DEVICE LIMIT ENFORCED:", {
+    license_key,
+    limit,
+    kept: keep.length,
+    passivized: removeFps.length,
+  });
+}
 async function findDeviceByFingerprint(
   license_key: string,
   device_fp: string
@@ -507,12 +563,16 @@ if (device_fp && device_fp.startsWith("fp_")) {
     }
 
     const planId = context.subscription.plan_id;
-    const limit = await getDeviceLimitForPlan(planId);
-    const resetLimit = await getMonthlyResetLimitForPlan(planId);
-    const resetCount = await countMonthlyDeviceResets(license_key);
-    const nowIso = new Date().toISOString();
+const limit = await getDeviceLimitForPlan(planId);
+const resetLimit = await getMonthlyResetLimitForPlan(planId);
+const resetCount = await countMonthlyDeviceResets(license_key);
+const nowIso = new Date().toISOString();
 
-    await passivizeStaleDevices(license_key);
+await passivizeStaleDevices(license_key);
+await enforceDeviceLimitForLicense({
+  license_key,
+  limit,
+});
 
     // 1) PRIMARNO: traži uređaj po fingerprintu
     const currentFpDevice = await findDeviceByFingerprint(license_key, device_fp);
