@@ -620,7 +620,7 @@ export default function OwnerDashboard() {
     <main style={pageStyle}>
       <header style={headerStyle}>
         <div>
-          <h1 style={titleStyle}>VetAssist owner panel</h1>
+          <h1 style={titleStyle}>VetAsist owner panel</h1>
           <p style={subtitleStyle}>
             Upravljanje licencom, pretplatom i uređajima organizacije.
           </p>
@@ -834,7 +834,7 @@ export default function OwnerDashboard() {
               </div>
 
               <p style={mutedTextStyle}>
-                Promena plana se pokreće iz VetAssist owner panela. Billing portal služi za karticu, račune i detalje naplate.
+                Promena plana se pokreće iz VetAsist owner panela. Billing portal služi za karticu, račune i detalje naplate.
               </p>
             </>
           ) : (
