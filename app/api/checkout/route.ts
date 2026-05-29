@@ -121,7 +121,7 @@ export async function POST(req: Request) {
             },
             product_options: {
               redirect_url: "https://app.vetasist.net/success",
-              receipt_button_text: "Otvori VetAssist",
+              receipt_button_text: "Otvori VetAsist",
               receipt_link_url: "https://app.vetasist.net/app",
             },
           },
