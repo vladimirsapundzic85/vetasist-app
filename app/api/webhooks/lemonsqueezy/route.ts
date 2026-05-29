@@ -764,17 +764,17 @@ async function sendLicenseEmail(params: {
 
   const subject =
   params.emailKind === "renewal"
-    ? "VetAssist – pretplata je uspešno produžena"
-    : "VetAssist – licenca i uputstvo za instalaciju";
+    ? "VetAsist – pretplata je uspešno produžena"
+    : "VetAsist – licenca i uputstvo za instalaciju";
     const mainTitle =
   params.emailKind === "renewal"
-    ? "Vaša VetAssist pretplata je produžena"
-    : "Vaša VetAssist licenca je aktivirana";
+    ? "Vaša VetAsist pretplata je produžena"
+    : "Vaša VetAsist licenca je aktivirana";
 
   const introText =
   params.emailKind === "renewal"
-    ? "Vaša VetAssist pretplata je uspešno produžena. Licenca ostaje ista i nije potrebna ponovna instalacija ekstenzije."
-    : "Vaša VetAssist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije.";
+    ? "Vaša VetAsist pretplata je uspešno produžena. Licenca ostaje ista i nije potrebna ponovna instalacija ekstenzije."
+    : "Vaša VetAsist pretplata je uspešno aktivirana. U nastavku se nalaze licenca i osnovni koraci za instalaciju i pokretanje ekstenzije.";
 
     const text = [
   "Poštovani,",
@@ -794,14 +794,14 @@ async function sendLicenseEmail(params: {
   `1. Otvorite Chrome Web Store link: ${CHROME_STORE_URL}`,
   "2. Kliknite “Add to Chrome” / “Dodaj u Chrome”.",
   "3. Nakon instalacije otvorite AIRS sistem.",
-  "4. Kliknite na VetAssist ikonicu u Chrome browseru.",
+  "4. Kliknite na VetAsist ikonicu u Chrome browseru.",
   "5. Unesite licencu iz ovog emaila.",
   "6. Kliknite “Sačuvaj i proveri licencu”.",
   "7. Kliknite “Podesi AIRS”.",
   "8. Nakon toga izaberite alat koji želite da koristite.",
   "",
   "VAŽNO:",
-  "• VetAssist radi u Google Chrome browseru.",
+  "• VetAsist radi u Google Chrome browseru.",
   "• Potrebno je da korisnik bude prijavljen u AIRS sistem.",
   "• Broj uređaja zavisi od kupljenog plana.",
   "• Licenca se može proslediti drugim korisnicima iz iste organizacije, u okviru limita uređaja.",
@@ -815,14 +815,14 @@ async function sendLicenseEmail(params: {
   "PODRŠKA:",
   `U slučaju problema pošaljite naziv alata, kratak opis problema i screenshot greške na: ${SUPPORT_EMAIL}`,
   "",
-  "VetAssist",
+  "VetAsist",
   "https://vetasist.net",
 ].join("\n");
 
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:720px;margin:0 auto;color:#1f2937;line-height:1.65;background:#ffffff;">
       <div style="padding:24px 0;border-bottom:1px solid #e5e7eb;margin-bottom:24px;">
-        <div style="font-size:26px;font-weight:900;color:#111827;">VetAssist</div>
+        <div style="font-size:26px;font-weight:900;color:#111827;">VetAsist</div>
         <div style="font-size:14px;color:#6b7280;margin-top:4px;">Licenca i uputstvo za instalaciju</div>
       </div>
 
@@ -866,10 +866,10 @@ async function sendLicenseEmail(params: {
         <h2 style="font-size:20px;margin:0 0 14px;color:#1e3a8a;">Instalacija i aktivacija</h2>
 
         <ol style="padding-left:22px;margin:0;color:#1f2937;">
-          <li style="margin-bottom:8px;">Kliknite na dugme <strong>Instaliraj VetAssist</strong>.</li>
+          <li style="margin-bottom:8px;">Kliknite na dugme <strong>Instaliraj VetAsist</strong>.</li>
           <li style="margin-bottom:8px;">Na Chrome Web Store stranici kliknite <strong>Add to Chrome</strong> / <strong>Dodaj u Chrome</strong>.</li>
           <li style="margin-bottom:8px;">Nakon instalacije otvorite AIRS sistem.</li>
-          <li style="margin-bottom:8px;">Kliknite na VetAssist ikonicu u Chrome browseru.</li>
+          <li style="margin-bottom:8px;">Kliknite na VetAsist ikonicu u Chrome browseru.</li>
           <li style="margin-bottom:8px;">Unesite licencu iz ovog emaila.</li>
           <li style="margin-bottom:8px;">Kliknite <strong>Sačuvaj i proveri licencu</strong>.</li>
           <li style="margin-bottom:8px;">Kliknite <strong>Podesi AIRS</strong>.</li>
@@ -883,14 +883,14 @@ async function sendLicenseEmail(params: {
             rel="noreferrer"
             style="display:inline-block;padding:13px 20px;border-radius:10px;text-decoration:none;background:#111827;color:#ffffff;font-weight:800;"
           >
-            Instaliraj VetAssist
+            Instaliraj VetAsist
           </a>
         </p>
       </div>
             <div style="margin-top:28px;padding:18px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;">
         <h2 style="font-size:18px;margin:0 0 10px;color:#9a3412;">Upravljanje pretplatom</h2>
         <p style="margin:0 0 12px;">
-          Pretplatu, licencu i uređaje možete pregledati i upravljati njima u VetAssist owner panelu. Iz owner panela možete otvoriti i Lemon Squeezy billing portal za karticu, račune i podešavanja naplate.
+          Pretplatu, licencu i uređaje možete pregledati i upravljati njima u VetAsist owner panelu. Iz owner panela možete otvoriti i Lemon Squeezy billing portal za karticu, račune i podešavanja naplate.
         </p>
         <p style="margin:0 0 12px;">
           <a
@@ -899,7 +899,7 @@ async function sendLicenseEmail(params: {
             rel="noreferrer"
             style="display:inline-block;padding:11px 16px;border-radius:10px;text-decoration:none;background:#9a3412;color:#ffffff;font-weight:800;"
           >
-            Otvori VetAssist owner panel
+            Otvori VetAsist owner panel
           </a>
         </p>
  
@@ -911,7 +911,7 @@ async function sendLicenseEmail(params: {
       <h2 style="font-size:18px;margin:28px 0 10px;color:#111827;">Važno</h2>
 
       <ul style="padding-left:20px;margin-top:0;">
-        <li>VetAssist radi u Google Chrome browseru.</li>
+        <li>VetAsist radi u Google Chrome browseru.</li>
         <li>Potrebno je da korisnik bude prijavljen u AIRS sistem.</li>
         <li>Broj uređaja zavisi od kupljenog plana.</li>
         <li>Ako je limit uređaja popunjen, novi uređaj neće moći da se aktivira dok se ne oslobodi mesto.</li>
@@ -929,7 +929,7 @@ async function sendLicenseEmail(params: {
       </div>
 
       <p style="margin-top:30px;color:#6b7280;font-size:13px;">
-        VetAssist<br />
+        VetAsist<br />
         <a href="https://vetasist.net" style="color:#1d4ed8;">https://vetasist.net</a>
       </p>
     </div>
