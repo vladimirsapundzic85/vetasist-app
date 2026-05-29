@@ -32,7 +32,7 @@ export default function AuthPage() {
 
   return (
     <main style={{ padding: 40, maxWidth: 400 }}>
-      <h1>VetAssist Login</h1>
+      <h1>VetAsist Login</h1>
 
       <p>Unesi email da dobiješ login link.</p>
 
