@@ -78,7 +78,7 @@ export default function HomePage() {
                 marginBottom: 18,
               }}
             >
-              VetAssist • AIRS automatizacija
+              VetAsist • AIRS automatizacija
             </div>
 
             <h1
@@ -102,7 +102,7 @@ export default function HomePage() {
                 color: "rgba(255,255,255,0.92)",
               }}
             >
-              VetAssist je skup alata za veterinarske službe i odgajivačke
+              VetAsist je skup alata za veterinarske službe i odgajivačke
               organizacije koji automatizuje pretragu, obradu i izvoz podataka
               iz AIRS-a i srodnih evidencija.
             </p>
@@ -181,7 +181,7 @@ export default function HomePage() {
                 fontWeight: 700,
               }}
             >
-              Šta VetAssist rešava
+              Šta VetAsist rešava
             </div>
 
             <ul
@@ -226,7 +226,7 @@ export default function HomePage() {
               textAlign: "center",
             }}
           >
-            Za koga je VetAssist
+            Za koga je VetAsist
           </h2>
 
           <p
@@ -327,7 +327,7 @@ export default function HomePage() {
               lineHeight: 1.6,
             }}
           >
-            VetAssist se naplaćuje po organizaciji, uz planove prilagođene
+            VetAsist se naplaćuje po organizaciji, uz planove prilagođene
             broju uređaja i obimu rada.
           </p>
 
@@ -476,7 +476,7 @@ export default function HomePage() {
               color: "rgba(255,255,255,0.85)",
             }}
           >
-            VetAssist je napravljen da skine najdosadniji deo posla sa ljudi koji
+            VetAsist je napravljen da skine najdosadniji deo posla sa ljudi koji
             svakodnevno rade proveru, obradu i izvoz podataka.
           </p>
 
