@@ -18,7 +18,7 @@ export default async function SuccessPage({
       <h1 style={{ marginBottom: 12 }}>Kupovina uspešna</h1>
 
       <p style={{ marginBottom: 24 }}>
-        Tvoja VetAssist kupovina je evidentirana.
+        Tvoja VetAsist kupovina je evidentirana.
       </p>
 
       <div
@@ -79,7 +79,7 @@ export default async function SuccessPage({
             fontWeight: 700,
           }}
         >
-          Otvori VetAssist sajt
+          Otvori VetAsist sajt
         </a>
       </div>
     </main>
