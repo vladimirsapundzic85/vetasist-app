@@ -28,7 +28,7 @@ export default function SuccessPage() {
               marginBottom: 18,
             }}
           >
-            VetAssist • Kupovina završena
+            VetAsist • Kupovina završena
           </div>
 
           <h1
@@ -91,7 +91,7 @@ export default function SuccessPage() {
               }}
             >
               Otvorite email, kopirajte licencu i pratite kratko uputstvo za
-              instalaciju i pokretanje VetAssist ekstenzije.
+              instalaciju i pokretanje VetAsist ekstenzije.
             </p>
 
             <p
