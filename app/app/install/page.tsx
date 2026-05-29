@@ -28,7 +28,7 @@ export default function InstallPage() {
               marginBottom: 18,
             }}
           >
-            VetAssist • Instalacija
+            VetAsist • Instalacija
           </div>
 
           <h1
