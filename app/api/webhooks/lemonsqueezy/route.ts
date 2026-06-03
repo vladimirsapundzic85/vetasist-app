@@ -53,7 +53,7 @@ const HANDLED_EVENTS = new Set([
 const CHROME_STORE_URL =
   "https://chromewebstore.google.com/detail/vetassist/gecmdckkjjpbicpiobimifpcpbdiobni";
 const SUPPORT_EMAIL = "support@vetasist.net";
-const OWNER_PANEL_URL = "https://app.vetasist.net/app";
+const OWNER_PANEL_URL = "https://app.vetasist.net/app/auth";
 
 function json(data: unknown, status = 200) {
   return NextResponse.json(data, { status });
@@ -888,9 +888,11 @@ async function sendLicenseEmail(params: {
         </p>
       </div>
             <div style="margin-top:28px;padding:18px;background:#fff7ed;border:1px solid #fed7aa;border-radius:12px;">
-        <h2 style="font-size:18px;margin:0 0 10px;color:#9a3412;">Upravljanje pretplatom</h2>
+        <h2 style="font-size:18px;margin:0 0 10px;color:#9a3412;">Prijava u VetAsist owner panel</h2>
         <p style="margin:0 0 12px;">
-          Pretplatu, licencu i uređaje možete pregledati i upravljati njima u VetAsist owner panelu. Iz owner panela možete otvoriti i Lemon Squeezy billing portal za karticu, račune i podešavanja naplate.
+          U VetAsist owner panel možete pregledati licencu, pretplatu i aktivne uređaje svoje organizacije.
+
+Za prijavu koristite email adresu na koju ste primili ovu poruku. Nakon unosa email adrese dobićete magic link za pristup owner panelu.
         </p>
         <p style="margin:0 0 12px;">
           <a
@@ -899,7 +901,7 @@ async function sendLicenseEmail(params: {
             rel="noreferrer"
             style="display:inline-block;padding:11px 16px;border-radius:10px;text-decoration:none;background:#9a3412;color:#ffffff;font-weight:800;"
           >
-            Otvori VetAsist owner panel
+            Prijavi se u VetAsist owner panel
           </a>
         </p>
  
