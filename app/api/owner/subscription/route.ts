@@ -367,6 +367,22 @@ const lemonCurrent = await lemonFetch(
     }
 
     if (action === "resume") {
+      const currentProviderStatus = String(currentAttrs?.status || "")
+        .trim()
+        .toLowerCase();
+
+      if (currentProviderStatus === "expired") {
+        return json(
+          {
+            ok: false,
+            error: "subscription_already_expired",
+            message:
+              "Pretplata je istekla. Staru pretplatu nije moguće nastaviti; potrebno je otvoriti billing portal ili napraviti novu kupovinu.",
+          },
+          409
+        );
+      }
+
       const payload = {
         data: {
           type: "subscriptions",
