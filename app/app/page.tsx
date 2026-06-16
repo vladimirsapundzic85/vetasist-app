@@ -162,8 +162,8 @@ export default function OwnerDashboard() {
   );
 
   const showResumeButton =
-    uiSubscriptionStatus === "cancelled" ||
-    !!mergedSubscription?.cancel_at_period_end;
+    uiSubscriptionStatus === "cancelled" &&
+    String(mergedSubscription?.provider_status || "").trim().toLowerCase() !== "expired";
 
   const showCancelButton =
     !!mergedSubscription &&
@@ -998,12 +998,24 @@ function resolveUiSubscriptionStatus(sub: Sub | null): UiSubscriptionStatus {
     .trim()
     .toLowerCase();
 
-  if (providerStatus === "cancelled" || sub.cancel_at_period_end) return "cancelled";
+  // Expired mora imati prioritet. Ako Lemon vrati status expired,
+  // cancel_at_period_end više ne sme da ga pretvori u CANCELLED.
   if (providerStatus === "expired") return "expired";
-  if (providerStatus === "past_due" || providerStatus === "unpaid" || providerStatus === "payment_failed") {
+
+  if (
+    providerStatus === "past_due" ||
+    providerStatus === "unpaid" ||
+    providerStatus === "payment_failed"
+  ) {
     return "payment_failed";
   }
+
   if (providerStatus === "paused") return "paused";
+
+  if (providerStatus === "cancelled" || sub.cancel_at_period_end) {
+    return "cancelled";
+  }
+
   if (providerStatus === "active") return "active";
 
   return "unknown";
@@ -1100,6 +1112,7 @@ function errorLabel(err: string) {
   if (err === "lemonsqueezy_fetch_failed") return "Ne mogu da učitam billing linkove iz Lemon Squeezy-ja.";
   if (err === "lemonsqueezy_cancel_failed") return "Otkazivanje pretplate nije uspelo.";
   if (err === "lemonsqueezy_resume_failed") return "Nastavak pretplate nije uspeo.";
+  if (err === "subscription_already_expired") return "Pretplata je istekla. Staru pretplatu nije moguće nastaviti; otvori billing portal ili napravi novu kupovinu.";
   if (err === "lemonsqueezy_change_plan_failed") return "Promena plana nije uspela.";
   if (err === "schedule_downgrade_failed") return "Zakazivanje smanjenja plana nije uspelo.";
   if (err === "cancel_scheduled_downgrade_failed") return "Otkazivanje zakazanog smanjenja plana nije uspelo.";
