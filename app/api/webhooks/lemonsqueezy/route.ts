@@ -362,25 +362,53 @@ async function ensureOwnerMembershipForEmail(params: {
   return data;
 }
 
+function isDestructiveSubscriptionEvent(event: string): boolean {
+  const normalizedEvent = safeString(event);
+
+  return new Set([
+    "subscription_expired",
+    "subscription_cancelled",
+    "subscription_paused",
+    "subscription_payment_failed",
+  ]).has(normalizedEvent);
+}
+
+async function findSubscriptionByExternalId(externalSubscriptionIdRaw: string) {
+  const externalSubscriptionId = safeString(externalSubscriptionIdRaw);
+
+  if (!externalSubscriptionId) return null;
+
+  const { data, error } = await supabase
+    .from("subscriptions")
+    .select("*")
+    .eq("external_subscription_id", externalSubscriptionId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`subscription_lookup_by_external_id_failed:${error.message}`);
+  }
+
+  return data ?? null;
+}
+
 async function findExistingSubscription(params: {
   externalSubscriptionId: string;
   orgId: string;
+  event: string;
 }) {
   const externalSubscriptionId = safeString(params.externalSubscriptionId);
   const orgId = safeString(params.orgId);
+  const event = safeString(params.event);
 
-  if (externalSubscriptionId) {
-    const { data, error } = await supabase
-      .from("subscriptions")
-      .select("*")
-      .eq("external_subscription_id", externalSubscriptionId)
-      .maybeSingle();
+  const exactSubscription = await findSubscriptionByExternalId(externalSubscriptionId);
 
-    if (error) {
-      throw new Error(`subscription_lookup_by_external_id_failed:${error.message}`);
-    }
+  if (exactSubscription) return exactSubscription;
 
-    if (data) return data;
+  // KRITIČNO:
+  // Destruktivni webhook događaji za stare pretplate NE SMEJU da padnu na org_id fallback,
+  // jer bi stari subscription_expired/subscription_cancelled mogao da pregazi novu aktivnu pretplatu iste organizacije.
+  if (externalSubscriptionId && isDestructiveSubscriptionEvent(event)) {
+    return null;
   }
 
   const { data, error } = await supabase
@@ -411,7 +439,18 @@ async function upsertSubscription(params: {
   const existing = await findExistingSubscription({
     externalSubscriptionId: params.externalSubscriptionId,
     orgId: params.orgId,
+    event: params.event,
   });
+
+  if (!existing && isDestructiveSubscriptionEvent(params.event)) {
+    console.warn("VetAssist: ignoring stale destructive subscription webhook", {
+      event: params.event,
+      orgId: params.orgId,
+      externalSubscriptionId: params.externalSubscriptionId,
+    });
+
+    return null;
+  }
 
   const payload = {
     org_id: params.orgId,
@@ -1018,6 +1057,7 @@ export async function POST(req: NextRequest) {
     const existingSubscriptionBeforeUpsert = await findExistingSubscription({
   externalSubscriptionId: payload.externalSubscriptionId,
   orgId: org.id,
+  event: payload.event,
 });
 
 const isNewSubscription = !existingSubscriptionBeforeUpsert;
@@ -1029,7 +1069,7 @@ const isNewSubscription = !existingSubscriptionBeforeUpsert;
       endsAt: payload.endsAt,
     });
 
-    await upsertSubscription({
+    const subscriptionUpsertResult = await upsertSubscription({
       orgId: org.id,
       externalSubscriptionId: payload.externalSubscriptionId,
       externalCustomerId: payload.externalCustomerId,
@@ -1041,6 +1081,20 @@ const isNewSubscription = !existingSubscriptionBeforeUpsert;
       cancelAtPeriodEnd: isCancelAtPeriodEnd(payload.providerStatus, payload.endsAt),
       event: payload.event,
     });
+
+    if (!subscriptionUpsertResult) {
+      return json({
+        ok: true,
+        ignored: true,
+        reason: "stale_destructive_subscription_event",
+        event: payload.event,
+        org_id: org.id,
+        owner_email: payload.email,
+        external_subscription_id: payload.externalSubscriptionId,
+        provider_status: payload.providerStatus,
+      });
+    }
+
     const scheduledDowngradeResult = await applyScheduledDowngradeIfNeeded({
   orgId: org.id,
   externalSubscriptionId: payload.externalSubscriptionId,
