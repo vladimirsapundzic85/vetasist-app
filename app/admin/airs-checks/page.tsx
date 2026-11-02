@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import { supabase } from "@/app/lib/supabase";
 
 type MovementRow = Record<string, string>;
@@ -53,18 +54,6 @@ export default function AdminAirsChecksPage() {
       setEmail(session?.user?.email ?? null);
     });
     return () => data.subscription.unsubscribe();
-  }, []);
-
-  const readJob = useCallback(async (jobId: string, token: string) => {
-    const response = await fetch("/api/admin/airs-check-jobs/" + encodeURIComponent(jobId), {
-      headers: { Authorization: "Bearer " + token },
-      cache: "no-store",
-    });
-    const value = await response.json();
-    if (!response.ok || !value.ok) {
-      throw new Error(value.error || "job_lookup_failed");
-    }
-    setJob(value.job as Job);
   }, []);
 
   useEffect(() => {
@@ -215,21 +204,21 @@ function fieldKey(row: MovementRow, index: number) {
   return row["Broj životinje"] + "-" + index;
 }
 
-const pageStyle: React.CSSProperties = {
+const pageStyle: CSSProperties = {
   maxWidth: 980,
   margin: "40px auto",
   padding: 24,
   fontFamily: "Arial, sans-serif",
   color: "#172033",
 };
-const boxStyle: React.CSSProperties = {
+const boxStyle: CSSProperties = {
   border: "1px solid #ccd3df",
   borderRadius: 12,
   padding: 20,
   marginTop: 20,
   background: "#fff",
 };
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   display: "block",
   width: "100%",
   boxSizing: "border-box",
@@ -239,15 +228,15 @@ const textareaStyle: React.CSSProperties = {
   fontFamily: "monospace",
   fontSize: 15,
 };
-const buttonStyle: React.CSSProperties = {
+const buttonStyle: CSSProperties = {
   padding: "10px 16px",
   borderRadius: 8,
   border: "1px solid #7a879e",
   background: "#edf4ff",
   cursor: "pointer",
 };
-const tableStyle: React.CSSProperties = { width: "100%", borderCollapse: "collapse" };
-const cellStyle: React.CSSProperties = {
+const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse" };
+const cellStyle: CSSProperties = {
   textAlign: "left",
   border: "1px solid #ccd3df",
   padding: 8,
