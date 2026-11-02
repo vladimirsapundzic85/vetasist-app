@@ -5,6 +5,16 @@ import { requireAdmin } from "@/app/lib/admin-auth";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function errorResponse(error: unknown) {
+  if (error instanceof JobError) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });
+  }
+  if (error instanceof SyntaxError) {
+    return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.json({ ok: false, error: "server_error" }, { status: 500, headers: { "Cache-Control": "no-store" } });
+}
+
 export async function POST(req: Request) {
   try {
     const admin = await requireAdmin(req);
@@ -23,11 +33,6 @@ export async function POST(req: Request) {
       { headers: { "Cache-Control": "no-store" } }
     );
   } catch (error) {
-    const status = error instanceof JobError ? error.status : 400;
-    const message = error instanceof JobError ? error.message : "invalid_request";
-    return NextResponse.json(
-      { ok: false, error: message },
-      { status, headers: { "Cache-Control": "no-store" } }
-    );
+    return errorResponse(error);
   }
 }
